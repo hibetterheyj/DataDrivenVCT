@@ -9,6 +9,8 @@ regular_season:
   - ["FPX", "NOVA", [2, 1]]
   - ["WOL", "AG", [0, 2]]
   - ["BLG", "JDG", [2, 1]]
+  - ["TE", "EDG", null]
+  - ["TYL", "TEC", null]
   - ["EDG", "BLG", null]
 
 playoffs: []

@@ -1,13 +1,14 @@
 import random
 import json
-import requests
 import graphviz
-import yaml
 import argparse
 import os
+import requests
+import tqdm
+import yaml
 
-random.seed(77)
-
+# 全局 debug 变量
+debug = False
 
 def load_yaml(file_path):
     with open(file_path, 'r') as f:
@@ -20,9 +21,9 @@ def group_teams(yaml_folder):
     return groups['Alpha'], groups['Omega']
 
 
-def load_initial_scores(yaml_folder):
+def load_initial_pts(yaml_folder):
     """加载初始积分"""
-    return load_yaml(os.path.join(yaml_folder, 'initial_scores.yaml'))
+    return load_yaml(os.path.join(yaml_folder, 'initial_pts.yaml'))
 
 
 def load_real_results(source="local", results_file="results.yaml", yaml_folder="./yaml"):
@@ -35,10 +36,12 @@ def load_real_results(source="local", results_file="results.yaml", yaml_folder="
                 data['playoffs'] = []
             return data
         except FileNotFoundError:
-            print("本地数据文件未找到，将使用模拟数据")
+            if debug:
+                print("本地数据文件未找到，将使用模拟数据")
             return {'regular_season': [], 'playoffs': []}
         except Exception as e:
-            print(f"加载本地数据失败: {e}")
+            if debug:
+                print(f"加载本地数据失败: {e}")
             return {'regular_season': [], 'playoffs': []}
     else:  # 从网络加载
         try:
@@ -50,50 +53,70 @@ def load_real_results(source="local", results_file="results.yaml", yaml_folder="
                 data['playoffs'] = []
             return data
         except Exception as e:
-            print(f"加载网络数据失败: {e}")
+            if debug:
+                print(f"加载网络数据失败: {e}")
             return {'regular_season': [], 'playoffs': []}
 
 
-def play_regular_season(group, scores, use_real_data=False):
+def play_regular_season(group, use_real_data=False):
     """进行常规赛：每组内每支队伍与同组其他队伍各打一场比赛"""
+    pts = {team: 0 for team in group}
+    win_loss = {team: [0, 0] for team in group}  # 初始化胜负记录
     played_matches = set()  # 用于记录已经进行的比赛
 
     if use_real_data and real_results['regular_season']:
-        print("\n使用真实常规赛数据")
+        if debug:
+            print("\n使用真实常规赛数据")
         for team1, team2, result in real_results['regular_season']:
             if team1 in group and team2 in group and result is not None:
                 # 标记这场比赛已经进行
                 played_matches.add(tuple(sorted([team1, team2])))
                 winner = team1 if result[0] > result[1] else team2
-                print(f"{team1} vs {team2} -> 比分: {result} 胜者: {winner}")
-                scores[winner] += 1
+                loser = team2 if result[0] > result[1] else team1
+                pts[winner] += 1
+                win_loss[winner][0] += 1  # 胜者胜场加1
+                win_loss[loser][1] += 1   # 败者负场加1
+                if debug:
+                    print(f"{team1} vs {team2} -> 比分: {result} 胜者: {winner}")
 
     # 模拟比赛逻辑
-    print("\n模拟常规赛")
+    if debug:
+        print("\n模拟常规赛")
     for i, team1 in enumerate(group):
         for team2 in group[i + 1:]:
             match = tuple(sorted([team1, team2]))
             if match not in played_matches:
                 if random.choice([True, False]):
-                    scores[team1] += 1
-                    print(f"{team1} vs {team2} -> 胜者: {team1}")
+                    pts[team1] += 1
+                    win_loss[team1][0] += 1  # 胜者胜场加1
+                    win_loss[team2][1] += 1  # 败者负场加1
+                    if debug:
+                        print(f"{team1} vs {team2} -> 胜者: {team1}")
                 else:
-                    scores[team2] += 1
-                    print(f"{team1} vs {team2} -> 胜者: {team2}")
+                    pts[team2] += 1
+                    win_loss[team2][0] += 1  # 胜者胜场加1
+                    win_loss[team1][1] += 1  # 败者负场加1
+                    if debug:
+                        print(f"{team1} vs {team2} -> 胜者: {team2}")
                 played_matches.add(match)
-    return scores
 
+    win_loss_dict = {team: f"{wins}胜-{losses}负" for team, (wins, losses) in win_loss.items()}
+    return pts, win_loss_dict
 
-def get_qualified(group, scores, num_qualify=4):
+# todo: 有详细的小组排名规则待拓展
+def get_qualified(group, pts, win_loss_dict, num_qualify=4):
     """从小组中选出积分前4的队伍晋级季后赛"""
-    sorted_group = sorted(group, key=lambda x: scores[x], reverse=True)
-    print(f"\n{group} 小组排名: {sorted_group}")
+    sorted_group = sorted(group, key=lambda x: pts[x], reverse=True)
+    if debug:
+        formatted_group = [f"{team}({win_loss_dict[team]})" for team in sorted_group]
+        print(f"\n{group} 小组排名: {formatted_group}")
     return sorted_group[:num_qualify]
 
 
-def play_playoffs(qualified_teams_a, qualified_teams_b, scores, use_real_data=False):
+def play_playoffs(qualified_teams_a, qualified_teams_b, initial_pts, regular_pts, use_real_data=False):
     """季后赛：M1-M12编号 + 从左到右布局 + 双败淘汰可视化"""
-    print("\n=== 季后赛（M1-M12轮次，从左到右布局）===")
+    if debug:
+        print("\n=== 季后赛（M1-M12轮次，从左到右布局）===")
 
     # 初始化Graphviz（从左到右布局，PNG格式）
     dot = graphviz.Digraph(comment='Playoffs Bracket', format='png')
@@ -107,15 +130,17 @@ def play_playoffs(qualified_teams_a, qualified_teams_b, scores, use_real_data=Fa
     alpha1, alpha2, alpha3, alpha4 = alpha_rank
     omega1, omega2, omega3, omega4 = omega_rank
 
-    print("\n分组排名:")
-    print("Alpha组:", [f"{i + 1}.{team}" for i, team in enumerate(alpha_rank)])
-    print("Omega组:", [f"{i + 1}.{team}" for i, team in enumerate(omega_rank)])
+    if debug:
+        print("\n分组排名:")
+        print("Alpha组:", [f"{i + 1}.{team}" for i, team in enumerate(alpha_rank)])
+        print("Omega组:", [f"{i + 1}.{team}" for i, team in enumerate(omega_rank)])
 
     # 半区队伍定义
     left_bracket = [alpha1, omega2, alpha3, omega4]  # 左1(Alpha1), 左2(Omega2), 左3(Alpha3), 左4(Omega4)
     right_bracket = [omega1, alpha2, omega3, alpha4]  # 右1(Omega1), 右2(Alpha2), 右3(Omega3), 右4(Alpha4)
-    print("\n左半区队伍:", left_bracket)
-    print("右半区队伍:", right_bracket)
+    if debug:
+        print("\n左半区队伍:", left_bracket)
+        print("右半区队伍:", right_bracket)
 
     # 存储各轮次结果（M1-M12）
     rounds = {
@@ -134,7 +159,8 @@ def play_playoffs(qualified_teams_a, qualified_teams_b, scores, use_real_data=Fa
     }
 
     # -------------------------- M1: 左半区胜者组第一轮（左2 vs 左3） --------------------------
-    print("\n=== M1: 左半区胜者组第一轮（Omega2 vs Alpha3）===")
+    if debug:
+        print("\n=== M1: 左半区胜者组第一轮（Omega2 vs Alpha3）===")
     m1_team1, m1_team2 = left_bracket[1], left_bracket[2]  # Omega2, Alpha3
     rounds['M1']['teams'] = [m1_team1, m1_team2]
     if use_real_data and real_results['playoffs']:
@@ -147,10 +173,12 @@ def play_playoffs(qualified_teams_a, qualified_teams_b, scores, use_real_data=Fa
     m1_loser = m1_team1 if m1_winner == m1_team2 else m1_team2
     rounds['M1']['winner'] = m1_winner
     rounds['M1']['loser'] = m1_loser
-    print(f"{m1_team1} vs {m1_team2} -> 胜者: {m1_winner}, 败者: {m1_loser}")
+    if debug:
+        print(f"{m1_team1} vs {m1_team2} -> 胜者: {m1_winner}, 败者: {m1_loser}")
 
     # -------------------------- M2: 右半区胜者组第一轮（Alpha2 vs Omega3） --------------------------
-    print("\n=== M2: 右半区胜者组第一轮（Alpha2 vs Omega3）===")
+    if debug:
+        print("\n=== M2: 右半区胜者组第一轮（Alpha2 vs Omega3）===")
     m2_team1, m2_team2 = right_bracket[1], right_bracket[2]  # Alpha2, Omega3
     rounds['M2']['teams'] = [m2_team1, m2_team2]
     if use_real_data and real_results['playoffs']:
@@ -163,10 +191,12 @@ def play_playoffs(qualified_teams_a, qualified_teams_b, scores, use_real_data=Fa
     m2_loser = m2_team1 if m2_winner == m2_team2 else m2_team2
     rounds['M2']['winner'] = m2_winner
     rounds['M2']['loser'] = m2_loser
-    print(f"{m2_team1} vs {m2_team2} -> 胜者: {m2_winner}, 败者: {m2_loser}")
+    if debug:
+        print(f"{m2_team1} vs {m2_team2} -> 胜者: {m2_winner}, 败者: {m2_loser}")
 
     # -------------------------- M3: 左半区败者组第一轮（Omega4 vs M1败者） --------------------------
-    print("\n=== M3: 左半区败者组第一轮（Omega4 vs M1败者）===")
+    if debug:
+        print("\n=== M3: 左半区败者组第一轮（Omega4 vs M1败者）===")
     m3_team1, m3_team2 = left_bracket[3], m1_loser  # Omega4, M1败者
     rounds['M3']['teams'] = [m3_team1, m3_team2]
     if use_real_data and real_results['playoffs']:
@@ -179,10 +209,12 @@ def play_playoffs(qualified_teams_a, qualified_teams_b, scores, use_real_data=Fa
     m3_loser = m3_team1 if m3_winner == m3_team2 else m3_team2
     rounds['M3']['winner'] = m3_winner
     rounds['M3']['loser'] = m3_loser
-    print(f"{m3_team1} vs {m3_team2} -> 胜者: {m3_winner}, 败者: {m3_loser}")
+    if debug:
+        print(f"{m3_team1} vs {m3_team2} -> 胜者: {m3_winner}, 败者: {m3_loser}")
 
     # -------------------------- M4: 右半区败者组第一轮（Alpha4 vs M2败者） --------------------------
-    print("\n=== M4: 右半区败者组第一轮（Alpha4 vs M2败者）===")
+    if debug:
+        print("\n=== M4: 右半区败者组第一轮（Alpha4 vs M2败者）===")
     m4_team1, m4_team2 = right_bracket[3], m2_loser  # Alpha4, M2败者
     rounds['M4']['teams'] = [m4_team1, m4_team2]
     if use_real_data and real_results['playoffs']:
@@ -195,10 +227,12 @@ def play_playoffs(qualified_teams_a, qualified_teams_b, scores, use_real_data=Fa
     m4_loser = m4_team1 if m4_winner == m4_team2 else m4_team2
     rounds['M4']['winner'] = m4_winner
     rounds['M4']['loser'] = m4_loser
-    print(f"{m4_team1} vs {m4_team2} -> 胜者: {m4_winner}, 败者: {m4_loser}")
+    if debug:
+        print(f"{m4_team1} vs {m4_team2} -> 胜者: {m4_winner}, 败者: {m4_loser}")
 
     # -------------------------- M5: 左半区胜者组第二轮（Alpha1 vs M1胜者） --------------------------
-    print("\n=== M5: 左半区胜者组第二轮（Alpha1 vs M1胜者）===")
+    if debug:
+        print("\n=== M5: 左半区胜者组第二轮（Alpha1 vs M1胜者）===")
     m5_team1, m5_team2 = left_bracket[0], m1_winner  # Alpha1, M1胜者
     rounds['M5']['teams'] = [m5_team1, m5_team2]
     if use_real_data and real_results['playoffs']:
@@ -211,10 +245,12 @@ def play_playoffs(qualified_teams_a, qualified_teams_b, scores, use_real_data=Fa
     m5_loser = m5_team1 if m5_winner == m5_team2 else m5_team2
     rounds['M5']['winner'] = m5_winner
     rounds['M5']['loser'] = m5_loser
-    print(f"{m5_team1} vs {m5_team2} -> 胜者: {m5_winner}, 败者: {m5_loser}")
+    if debug:
+        print(f"{m5_team1} vs {m5_team2} -> 胜者: {m5_winner}, 败者: {m5_loser}")
 
     # -------------------------- M6: 右半区胜者组第二轮（Omega1 vs M2胜者） --------------------------
-    print("\n=== M6: 右半区胜者组第二轮（Omega1 vs M2胜者）===")
+    if debug:
+        print("\n=== M6: 右半区胜者组第二轮（Omega1 vs M2胜者）===")
     m6_team1, m6_team2 = right_bracket[0], m2_winner  # Omega1, M2胜者
     rounds['M6']['teams'] = [m6_team1, m6_team2]
     if use_real_data and real_results['playoffs']:
@@ -227,10 +263,12 @@ def play_playoffs(qualified_teams_a, qualified_teams_b, scores, use_real_data=Fa
     m6_loser = m6_team1 if m6_winner == m6_team2 else m6_team2
     rounds['M6']['winner'] = m6_winner
     rounds['M6']['loser'] = m6_loser
-    print(f"{m6_team1} vs {m6_team2} -> 胜者: {m6_winner}, 败者: {m6_loser}")
+    if debug:
+        print(f"{m6_team1} vs {m6_team2} -> 胜者: {m6_winner}, 败者: {m6_loser}")
 
     # -------------------------- M7: 左半区败者组第二轮（M3胜者 vs M6败者） --------------------------
-    print("\n=== M7: 左半区败者组第二轮（M3胜者 vs M6败者）===")
+    if debug:
+        print("\n=== M7: 左半区败者组第二轮（M3胜者 vs M6败者）===")
     m7_team1, m7_team2 = m3_winner, m6_loser  # M3胜者, M6败者
     rounds['M7']['teams'] = [m7_team1, m7_team2]
     if use_real_data and real_results['playoffs']:
@@ -243,10 +281,12 @@ def play_playoffs(qualified_teams_a, qualified_teams_b, scores, use_real_data=Fa
     m7_loser = m7_team1 if m7_winner == m7_team2 else m7_team2
     rounds['M7']['winner'] = m7_winner
     rounds['M7']['loser'] = m7_loser
-    print(f"{m7_team1} vs {m7_team2} -> 胜者: {m7_winner}, 败者: {m7_loser}")
+    if debug:
+        print(f"{m7_team1} vs {m7_team2} -> 胜者: {m7_winner}, 败者: {m7_loser}")
 
     # -------------------------- M8: 右半区败者组第二轮（M4胜者 vs M5败者） --------------------------
-    print("\n=== M8: 右半区败者组第二轮（M4胜者 vs M5败者）===")
+    if debug:
+        print("\n=== M8: 右半区败者组第二轮（M4胜者 vs M5败者）===")
     m8_team1, m8_team2 = m4_winner, m5_loser  # M4胜者, M5败者
     rounds['M8']['teams'] = [m8_team1, m8_team2]
     if use_real_data and real_results['playoffs']:
@@ -259,10 +299,12 @@ def play_playoffs(qualified_teams_a, qualified_teams_b, scores, use_real_data=Fa
     m8_loser = m8_team1 if m8_winner == m8_team2 else m8_team2
     rounds['M8']['winner'] = m8_winner
     rounds['M8']['loser'] = m8_loser
-    print(f"{m8_team1} vs {m8_team2} -> 胜者: {m8_winner}, 败者: {m8_loser}")
+    if debug:
+        print(f"{m8_team1} vs {m8_team2} -> 胜者: {m8_winner}, 败者: {m8_loser}")
 
     # -------------------------- M9: 胜者组决赛（M5胜者 vs M6胜者） --------------------------
-    print("\n=== M9: 胜者组决赛（M5胜者 vs M6胜者）===")
+    if debug:
+        print("\n=== M9: 胜者组决赛（M5胜者 vs M6胜者）===")
     m9_team1, m9_team2 = m5_winner, m6_winner  # M5胜者, M6胜者
     rounds['M9']['teams'] = [m9_team1, m9_team2]
     if use_real_data and real_results['playoffs']:
@@ -275,10 +317,12 @@ def play_playoffs(qualified_teams_a, qualified_teams_b, scores, use_real_data=Fa
     m9_loser = m9_team1 if m9_winner == m9_team2 else m9_team2
     rounds['M9']['winner'] = m9_winner
     rounds['M9']['loser'] = m9_loser
-    print(f"{m9_team1} vs {m9_team2} -> 胜者: {m9_winner}, 败者: {m9_loser}")
+    if debug:
+        print(f"{m9_team1} vs {m9_team2} -> 胜者: {m9_winner}, 败者: {m9_loser}")
 
     # -------------------------- M10: 败者组半决赛（M7胜者 vs M8胜者） --------------------------
-    print("\n=== M10: 败者组半决赛（M7胜者 vs M8胜者）===")
+    if debug:
+        print("\n=== M10: 败者组半决赛（M7胜者 vs M8胜者）===")
     m10_team1, m10_team2 = m7_winner, m8_winner  # M7胜者, M8胜者
     rounds['M10']['teams'] = [m10_team1, m10_team2]
     if use_real_data and real_results['playoffs']:
@@ -291,10 +335,12 @@ def play_playoffs(qualified_teams_a, qualified_teams_b, scores, use_real_data=Fa
     m10_loser = m10_team1 if m10_winner == m10_team2 else m10_team2
     rounds['M10']['winner'] = m10_winner
     rounds['M10']['loser'] = m10_loser
-    print(f"{m10_team1} vs {m10_team2} -> 胜者: {m10_winner}, 败者: {m10_loser}（殿军）")
+    if debug:
+        print(f"{m10_team1} vs {m10_team2} -> 胜者: {m10_winner}, 败者: {m10_loser}（殿军）")
 
     # -------------------------- M11: 败者组决赛（M9败者 vs M10胜者） --------------------------
-    print("\n=== M11: 败者组决赛（M9败者 vs M10胜者）===")
+    if debug:
+        print("\n=== M11: 败者组决赛（M9败者 vs M10胜者）===")
     m11_team1, m11_team2 = m9_loser, m10_winner  # M9败者, M10胜者
     rounds['M11']['teams'] = [m11_team1, m11_team2]
     if use_real_data and real_results['playoffs']:
@@ -307,10 +353,12 @@ def play_playoffs(qualified_teams_a, qualified_teams_b, scores, use_real_data=Fa
     m11_loser = m11_team1 if m11_winner == m11_team2 else m11_team2
     rounds['M11']['winner'] = m11_winner
     rounds['M11']['loser'] = m11_loser
-    print(f"{m11_team1} vs {m11_team2} -> 胜者: {m11_winner}, 败者: {m11_loser}（季军）")
+    if debug:
+        print(f"{m11_team1} vs {m11_team2} -> 胜者: {m11_winner}, 败者: {m11_loser}（季军）")
 
     # -------------------------- M12: 总决赛（M9胜者 vs M11胜者） --------------------------
-    print("\n=== M12: 总决赛（M9胜者 vs M11胜者）===")
+    if debug:
+        print("\n=== M12: 总决赛（M9胜者 vs M11胜者）===")
     m12_team1, m12_team2 = m9_winner, m11_winner  # M9胜者, M11胜者
     rounds['M12']['teams'] = [m12_team1, m12_team2]
     if use_real_data and real_results['playoffs']:
@@ -323,16 +371,18 @@ def play_playoffs(qualified_teams_a, qualified_teams_b, scores, use_real_data=Fa
     runner_up = m12_team1 if champion == m12_team2 else m12_team2
     rounds['M12']['winner'] = champion
     rounds['M12']['loser'] = runner_up
-    print(f"{m12_team1} vs {m12_team2} -> 冠军: {champion}, 亚军: {runner_up}")
+    if debug:
+        print(f"{m12_team1} vs {m12_team2} -> 冠军: {champion}, 亚军: {runner_up}")
 
     # -------------------------- 排名逻辑 --------------------------
     third_place = m11_loser  # M11败者
     fourth_place = m10_loser  # M10败者
-    print(f"\n最终排名:")
-    print(f"1. {champion}（冠军）")
-    print(f"2. {runner_up}（亚军）")
-    print(f"3. {third_place}（季军 +4分）")
-    print(f"4. {fourth_place}（殿军 +3分）")
+    if debug:
+        print(f"\n最终排名:")
+        print(f"1. {champion}（冠军）")
+        print(f"2. {runner_up}（亚军）")
+        print(f"3. {third_place}（季军 +4分）")
+        print(f"4. {fourth_place}（殿军 +3分）")
 
     # -------------------------- Graphviz 布局与连线 --------------------------
     # 列分组：M1-M4（列1）、M5-M8（列2）、M9-M10（列3）、M11-M12（列4）
@@ -389,82 +439,165 @@ def play_playoffs(qualified_teams_a, qualified_teams_b, scores, use_real_data=Fa
     #     dot.edge(u, v, color="gray", style="dashed", penwidth="1")  # 败者线：灰色虚线
 
     # 更新积分
-    updated_scores = scores.copy()
-    updated_scores[third_place] += 4
-    updated_scores[fourth_place] += 3
+    updated_pts = {team: initial_pts.get(team, 0) + regular_pts.get(team, 0) for team in set(initial_pts) | set(regular_pts)}
+    updated_pts[third_place] += 4
+    updated_pts[fourth_place] += 3
 
     # 计算冠军赛出征队伍
-    non_champ_runnerup_scores = {team: score for team, score in updated_scores.items() if team not in [champion, runner_up]}
-    sorted_non_champ_runnerup = sorted(non_champ_runnerup_scores.items(), key=lambda x: x[1], reverse=True)
+    non_champ_runnerup_pts = {team: score for team, score in updated_pts.items() if team not in [champion, runner_up]}
+    sorted_non_champ_runnerup = sorted(non_champ_runnerup_pts.items(), key=lambda x: x[1], reverse=True)
     third_seed = sorted_non_champ_runnerup[0][0] if sorted_non_champ_runnerup else None
     fourth_seed = sorted_non_champ_runnerup[1][0] if len(sorted_non_champ_runnerup) > 1 else None
 
-    print("\n冠军赛出征队伍：")
-    print(f"一号种子：{champion}")
-    print(f"二号种子：{runner_up}")
-    print(f"三号种子：{third_seed}")
-    print(f"四号种子：{fourth_seed}")
+    if debug:
+        print("\n冠军赛出征队伍：")
+        print(f"一号种子：{champion}")
+        print(f"二号种子：{runner_up}")
+        print(f"三号种子：{third_seed}")
+        print(f"四号种子：{fourth_seed}")
 
     return {
         'champion': champion,
         'runner_up': runner_up,
         'third_place': third_place,
         'fourth_place': fourth_place,
-        'final_scores': updated_scores,
+        'final_pts': updated_pts,
         'dot_graph': dot,  # 返回Graphviz图对象
         'third_seed': third_seed,
-        'fourth_seed': fourth_seed
+        'fourth_seed': fourth_seed,
+        'champions_slots': [champion, runner_up, third_seed, fourth_seed]
     }
+
+def simulate_regular_seasons(num_simulations, yaml_folder):
+    alpha, omega = group_teams(yaml_folder)
+    alpha_qualify_count = {team: 0 for team in alpha}
+    omega_qualify_count = {team: 0 for team in omega}
+
+    for i in tqdm.tqdm(range(num_simulations), desc="模拟常规赛"):
+        if debug:
+            print(f"\n####### 第{i + 1}次模拟 #######\n")
+        alpha_pts, alpha_win_loss = play_regular_season(alpha, use_real_data=True)
+        omega_pts, omega_win_loss = play_regular_season(omega, use_real_data=True)
+
+        alpha_qualified = get_qualified(alpha, alpha_pts, alpha_win_loss)
+        omega_qualified = get_qualified(omega, omega_pts, omega_win_loss)
+
+        for team in alpha_qualified:
+            alpha_qualify_count[team] += 1
+        for team in omega_qualified:
+            omega_qualify_count[team] += 1
+
+    alpha_probabilities = {team: count / num_simulations for team, count in alpha_qualify_count.items()}
+    omega_probabilities = {team: count / num_simulations for team, count in omega_qualify_count.items()}
+
+    return alpha_probabilities, omega_probabilities
+
+def simulate_all_games(num_simulations, yaml_folder):
+    alpha, omega = group_teams(yaml_folder)
+    initial_pts = load_initial_pts(yaml_folder)
+    champions_slots_count = {team: 0 for team in alpha + omega}
+
+    for i in tqdm.tqdm(range(num_simulations), desc="模拟常规赛+季后赛"):
+        if debug:
+            print(f"\n####### 第{i + 1}次模拟 #######\n")
+        alpha_pts, alpha_win_loss = play_regular_season(alpha, use_real_data=True)
+        omega_pts, omega_win_loss = play_regular_season(omega, use_real_data=True)
+
+        alpha_qualified = get_qualified(alpha, alpha_pts, alpha_win_loss)
+        omega_qualified = get_qualified(omega, omega_pts, omega_win_loss)
+
+        regular_pts = {**alpha_pts, **omega_pts}
+        champions_slots = play_playoffs(alpha_qualified, omega_qualified, initial_pts, regular_pts, use_real_data=False)['champions_slots']
+        for team in champions_slots:
+            champions_slots_count[team] += 1
+
+    probabilities = {team: count / num_simulations for team, count in champions_slots_count.items()}
+    return probabilities
 
 
 def main(args):
+    global debug
+    debug = True
+    random.seed(77)
+
     # 初始积分
-    initial_scores = load_initial_scores(args.yaml_folder)
-    print("初始积分：")
-    for team, score in initial_scores.items():
-        print(f"{team}: {score}")
+    initial_pts = load_initial_pts(args.yaml_folder)
+    if debug:
+        print("初始积分：")
+        for team, score in initial_pts.items():
+            print(f"{team}: {score}")
 
     # 分组
     group_a, group_b = group_teams(args.yaml_folder)
-    print("\n分组：")
-    print(f"Alpha组：{group_a}")
-    print(f"Omega组：{group_b}")
+    if debug:
+        print("\n分组：")
+        print(f"Alpha组：{group_a}")
+        print(f"Omega组：{group_b}")
 
     if args.use_real_data:
         global real_results
         real_results = load_real_results(args.source, args.results_file, args.yaml_folder)
 
     # 常规赛
-    scores = play_regular_season(group_a, initial_scores.copy(), args.use_real_data)
-    scores = play_regular_season(group_b, scores, args.use_real_data)
+    alpha_pts, alpha_win_loss = play_regular_season(group_a, args.use_real_data)
+    omega_pts, omega_win_loss = play_regular_season(group_b, args.use_real_data)
+    regular_pts = {**alpha_pts, **omega_pts}
 
     # 常规赛积分分组显示
-    print("\n常规赛结束后积分：")
-    print("Alpha组：")
-    for team in group_a:
-        print(f"{team}: {scores[team]}")
-    print("\nOmega组：")
-    for team in group_b:
-        print(f"{team}: {scores[team]}")
+    if debug:
+        print("\n常规赛结束后积分：")
+        print("Alpha组：")
+        for team in group_a:
+            print(f"{team}: {alpha_pts[team]}")
+        print("\nOmega组：")
+        for team in group_b:
+            print(f"{team}: {omega_pts[team]}")
 
     # 晋级队伍
-    qualify_a = get_qualified(group_a, scores)
-    qualify_b = get_qualified(group_b, scores)
-    print("\n晋级季后赛队伍：")
-    print("Alpha组:", qualify_a)
-    print("Omega组:", qualify_b)
+    qualify_a = get_qualified(group_a, alpha_pts, alpha_win_loss)
+    qualify_b = get_qualified(group_b, omega_pts, omega_win_loss)
+    if debug:
+        print("\n晋级季后赛队伍：")
+        print("Alpha组:", qualify_a)
+        print("Omega组:", qualify_b)
 
     # 季后赛（含可视化）
-    playoff_results = play_playoffs(qualify_a, qualify_b, scores.copy(), args.use_real_data)
+    playoff_results = play_playoffs(qualify_a, qualify_b, initial_pts, regular_pts, args.use_real_data)
 
     # 渲染PNG并打开
     playoff_results['dot_graph'].render('playoffs_bracket', format='png', view=True)
 
     # 最终积分排名
-    final_ranking = sorted(playoff_results['final_scores'].items(), key=lambda x: x[1], reverse=True)
-    print("\n最终积分排名：")
-    for i, (team, score) in enumerate(final_ranking, 1):
-        print(f"{i}. {team}: {score}分")
+    final_ranking = sorted(playoff_results['final_pts'].items(), key=lambda x: x[1], reverse=True)
+    if debug:
+        print("\n最终积分排名：")
+        for i, (team, score) in enumerate(final_ranking, 1):
+            print(f"{i}. {team}: {score}分")
+
+
+def multi_sim(args):
+    global debug
+    debug = args.debug
+    yaml_folder = args.yaml_folder
+    if args.use_real_data:
+        global real_results
+        real_results = load_real_results(args.source, args.results_file, args.yaml_folder)
+
+    # 模拟常规赛，计算晋级季后赛概率
+    alpha_probs, omega_probs = simulate_regular_seasons(args.num_simulations, yaml_folder)
+    print("\nAlpha组晋级季后赛概率:")
+    for team, prob in alpha_probs.items():
+        print(f"{team}: {prob * 100:.2f}%")
+
+    print("\nOmega组晋级季后赛概率:")
+    for team, prob in omega_probs.items():
+        print(f"{team}: {prob * 100:.2f}%")
+
+    # 模拟常规赛+季后赛，计算晋级世界赛概率
+    champions_slots_probs = simulate_all_games(args.num_simulations, yaml_folder)
+    print("\n晋级世界赛概率:")
+    for team, prob in champions_slots_probs.items():
+        print(f"{team}: {prob * 100:.2f}%")
 
 
 if __name__ == "__main__":
@@ -474,6 +607,12 @@ if __name__ == "__main__":
     parser.add_argument('--results_file', default='results.yaml', help='比赛结果文件路径')
     parser.add_argument('--num_games', type=int, default=5, help='每组内每支队伍的比赛场数')
     parser.add_argument('--yaml_folder', default='./yaml', help='YAML文件夹的位置')
+    parser.add_argument('--multi', action='store_true', default=False, help='是否进行多次模拟实验，默认关闭')
+    parser.add_argument('--num_simulations', type=int, default=5000, help='模拟实验的次数，默认10000')
+    parser.add_argument('--debug', action='store_true', help='是否打印内容数据')
     args = parser.parse_args()
 
-    main(args)
+    if args.multi:
+        multi_sim(args)
+    else:
+        main(args)

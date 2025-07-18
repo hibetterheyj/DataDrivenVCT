@@ -2,7 +2,7 @@
 
 ## 文件说明
 ### 代码
-- **`sim.py`**：用 Python 编写的核心脚本，模拟 VCT CN 2025 Stage 2 比赛结果，支持从本地或网络获取真实数据，无真实数据时随机模拟。使用 Graphviz 可视化季后赛赛果。
+**sim.py**：Python 核心脚本，模拟 VCT CN 2025 Stage 2 比赛结果，可从本地或网络获取真实数据，无真实数据则随机模拟。涵盖常规赛和季后赛模拟，能计算队伍积分、排名及晋级概率。使用 Graphviz 可视化季后赛赛果
 
 ![playoffs_bracket.png](playoffs_bracket.png) 生成的季后赛赛果。
 
@@ -11,7 +11,7 @@
 
 ### 数据与配置
 - **`yaml/groups.yaml`**：依据 [VCT 2025 China Stage 2](https://www.vlr.gg/event/2499/vct-2025-china-stage-2)，将参赛队伍分为 Alpha 和 Omega 两组。
-- **`yaml/initial_scores.yaml`**：参考 [VCT 2025 Championship Points China](https://liquipedia.net/valorant/VCT/2025/Championship_Points/China)，存储各队伍初始积分。
+- **`yaml/initial_pts.yaml`**：参考 [VCT 2025 Championship Points China](https://liquipedia.net/valorant/VCT/2025/Championship_Points/China)，存储各队伍初始积分。
 - **`yaml/results.yaml`**：记录真实比赛结果，目前仅含常规赛部分，模拟时优先使用真实数据。
 
 ## 待办事项
