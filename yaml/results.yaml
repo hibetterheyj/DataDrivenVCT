@@ -1,0 +1,14 @@
+regular_season:
+  - ["EDG", "TEC", [2, 0]]
+  - ["BLG", "TYL", [2, 0]]
+  - ["AG", "XLG", [1, 2]]
+  - ["WOL", "FPX", [0, 2]]
+  - ["DRG", "NOVA", [2, 1]]
+  - ["JDG", "TE", [1, 2]]
+  - ["TE", "TYL", [0, 2]]
+  - ["FPX", "NOVA", [2, 1]]
+  - ["WOL", "AG", [0, 2]]
+  - ["BLG", "JDG", [2, 1]]
+  - ["EDG", "BLG", null]
+
+playoffs: []
