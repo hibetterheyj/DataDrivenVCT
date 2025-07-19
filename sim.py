@@ -10,7 +10,6 @@ import requests
 import graphviz
 import tqdm
 
-
 # 全局 debug 变量
 debug = False
 
@@ -86,18 +85,13 @@ def play_regular_season(group, use_real_data=False):
         for team2 in group[i + 1:]:
             match = tuple(sorted([team1, team2]))
             if match not in played_matches:
-                if random.choice([True, False]):
-                    pts[team1] += 1
-                    win_loss[team1][0] += 1  # 胜者胜场加1
-                    win_loss[team2][1] += 1  # 败者负场加1
-                    if debug:
-                        print(f"{team1} vs {team2} -> 胜者: {team1}")
-                else:
-                    pts[team2] += 1
-                    win_loss[team2][0] += 1  # 胜者胜场加1
-                    win_loss[team1][1] += 1  # 败者负场加1
-                    if debug:
-                        print(f"{team1} vs {team2} -> 胜者: {team2}")
+                winner = team1 if random.choice([True, False]) else team2
+                loser = team2 if winner == team1 else team1
+                pts[winner] += 1
+                win_loss[winner][0] += 1  # 胜者胜场加1
+                win_loss[loser][1] += 1  # 败者负场加1
+                if debug:
+                    print(f"{team1} vs {team2} -> 胜者: {winner}")
                 played_matches.add(match)
 
     win_loss_dict = {team: f"{wins}胜-{losses}负" for team, (wins, losses) in win_loss.items()}
@@ -124,15 +118,13 @@ def play_playoffs(qualified_teams_a, qualified_teams_b, initial_pts, regular_pts
     dot.attr('edge', arrowhead='vee')
 
     # 分组排名解析
-    alpha_rank = qualified_teams_a  # [1st, 2nd, 3rd, 4th] → alpha1, alpha2, alpha3, alpha4
-    omega_rank = qualified_teams_b  # [1st, 2nd, 3rd, 4th] → omega1, omega2, omega3, omega4
-    alpha1, alpha2, alpha3, alpha4 = alpha_rank
-    omega1, omega2, omega3, omega4 = omega_rank
+    alpha1, alpha2, alpha3, alpha4 = qualified_teams_a
+    omega1, omega2, omega3, omega4 = qualified_teams_b
 
     if debug:
         print("\n分组排名:")
-        print("Alpha组:", [f"{i + 1}.{team}" for i, team in enumerate(alpha_rank)])
-        print("Omega组:", [f"{i + 1}.{team}" for i, team in enumerate(omega_rank)])
+        for group_name, group in [("Alpha组", qualified_teams_a), ("Omega组", qualified_teams_b)]:
+            print(group_name, [f"{i + 1}.{team}" for i, team in enumerate(group)])
 
     # 半区队伍定义
     left_bracket = [alpha1, omega2, alpha3, omega4]  # 左1(Alpha1), 左2(Omega2), 左3(Alpha3), 左4(Omega4)
@@ -142,238 +134,38 @@ def play_playoffs(qualified_teams_a, qualified_teams_b, initial_pts, regular_pts
         print("右半区队伍:", right_bracket)
 
     # 存储各轮次结果（M1-M12）
-    rounds = {
-        'M1': {'teams': [], 'winner': None, 'loser': None},  # 左半区胜者组第一轮（左2 vs 左3）
-        'M2': {'teams': [], 'winner': None, 'loser': None},  # 右半区胜者组第一轮（右2 vs 右3）
-        'M3': {'teams': [], 'winner': None, 'loser': None},  # 左半区败者组第一轮（左4 vs M1败者）
-        'M4': {'teams': [], 'winner': None, 'loser': None},  # 右半区败者组第一轮（右4 vs M2败者）
-        'M5': {'teams': [], 'winner': None, 'loser': None},  # 左半区胜者组第二轮（左1 vs M1胜者）
-        'M6': {'teams': [], 'winner': None, 'loser': None},  # 右半区胜者组第二轮（右1 vs M2胜者）
-        'M7': {'teams': [], 'winner': None, 'loser': None},  # 左半区败者组第二轮（M3胜者 vs M6败者）
-        'M8': {'teams': [], 'winner': None, 'loser': None},  # 右半区败者组第二轮（M4胜者 vs M5败者）
-        'M9': {'teams': [], 'winner': None, 'loser': None},  # 胜者组决赛（M5胜者 vs M6胜者）
-        'M10': {'teams': [], 'winner': None, 'loser': None},  # 败者组半决赛（M7胜者 vs M8胜者）
-        'M11': {'teams': [], 'winner': None, 'loser': None},  # 败者组决赛（M9败者 vs M10胜者）
-        'M12': {'teams': [], 'winner': None, 'loser': None},  # 总决赛（M9胜者 vs M11胜者）
-    }
+    rounds = {}
+    def play_round(round_name, team1, team2):
+        rounds[round_name] = {'teams': [team1, team2], 'winner': None, 'loser': None}
+        if use_real_data and real_results['playoffs']:
+            result = next((r for r in real_results['playoffs'] if
+                          (r[0] == team1 and r[1] == team2) or
+                          (r[0] == team2 and r[1] == team1)), None)
+            winner = result[2] if result else (team1 if random.choice([True, False]) else team2)
+        else:
+            winner = team1 if random.choice([True, False]) else team2
+        loser = team1 if winner == team2 else team2
+        rounds[round_name]['winner'] = winner
+        rounds[round_name]['loser'] = loser
+        if debug:
+            print(f"{team1} vs {team2} -> 胜者: {winner}, 败者: {loser}")
+        return winner, loser
 
-    # -------------------------- M1: 左半区胜者组第一轮（左2 vs 左3） --------------------------
-    if debug:
-        print("\n=== M1: 左半区胜者组第一轮（Omega2 vs Alpha3）===")
-    m1_team1, m1_team2 = left_bracket[1], left_bracket[2]  # Omega2, Alpha3
-    rounds['M1']['teams'] = [m1_team1, m1_team2]
-    if use_real_data and real_results['playoffs']:
-        result = next((r for r in real_results['playoffs'] if
-                      (r[0] == m1_team1 and r[1] == m1_team2) or
-                      (r[0] == m1_team2 and r[1] == m1_team1)), None)
-        m1_winner = result[2] if result else (m1_team1 if random.choice([True, False]) else m1_team2)
-    else:
-        m1_winner = m1_team1 if random.choice([True, False]) else m1_team2
-    m1_loser = m1_team1 if m1_winner == m1_team2 else m1_team2
-    rounds['M1']['winner'] = m1_winner
-    rounds['M1']['loser'] = m1_loser
-    if debug:
-        print(f"{m1_team1} vs {m1_team2} -> 胜者: {m1_winner}, 败者: {m1_loser}")
+    # 各轮比赛
+    m1_winner, m1_loser = play_round('M1', left_bracket[1], left_bracket[2])
+    m2_winner, m2_loser = play_round('M2', right_bracket[1], right_bracket[2])
+    m3_winner, m3_loser = play_round('M3', left_bracket[3], m1_loser)
+    m4_winner, m4_loser = play_round('M4', right_bracket[3], m2_loser)
+    m5_winner, m5_loser = play_round('M5', left_bracket[0], m1_winner)
+    m6_winner, m6_loser = play_round('M6', right_bracket[0], m2_winner)
+    m7_winner, m7_loser = play_round('M7', m3_winner, m6_loser)
+    m8_winner, m8_loser = play_round('M8', m4_winner, m5_loser)
+    m9_winner, m9_loser = play_round('M9', m5_winner, m6_winner)
+    m10_winner, m10_loser = play_round('M10', m7_winner, m8_winner)
+    m11_winner, m11_loser = play_round('M11', m9_loser, m10_winner)
+    champion, runner_up = play_round('M12', m9_winner, m11_winner)
 
-    # -------------------------- M2: 右半区胜者组第一轮（Alpha2 vs Omega3） --------------------------
-    if debug:
-        print("\n=== M2: 右半区胜者组第一轮（Alpha2 vs Omega3）===")
-    m2_team1, m2_team2 = right_bracket[1], right_bracket[2]  # Alpha2, Omega3
-    rounds['M2']['teams'] = [m2_team1, m2_team2]
-    if use_real_data and real_results['playoffs']:
-        result = next((r for r in real_results['playoffs'] if
-                      (r[0] == m2_team1 and r[1] == m2_team2) or
-                      (r[0] == m2_team2 and r[1] == m2_team1)), None)
-        m2_winner = result[2] if result else (m2_team1 if random.choice([True, False]) else m2_team2)
-    else:
-        m2_winner = m2_team1 if random.choice([True, False]) else m2_team2
-    m2_loser = m2_team1 if m2_winner == m2_team2 else m2_team2
-    rounds['M2']['winner'] = m2_winner
-    rounds['M2']['loser'] = m2_loser
-    if debug:
-        print(f"{m2_team1} vs {m2_team2} -> 胜者: {m2_winner}, 败者: {m2_loser}")
-
-    # -------------------------- M3: 左半区败者组第一轮（Omega4 vs M1败者） --------------------------
-    if debug:
-        print("\n=== M3: 左半区败者组第一轮（Omega4 vs M1败者）===")
-    m3_team1, m3_team2 = left_bracket[3], m1_loser  # Omega4, M1败者
-    rounds['M3']['teams'] = [m3_team1, m3_team2]
-    if use_real_data and real_results['playoffs']:
-        result = next((r for r in real_results['playoffs'] if
-                      (r[0] == m3_team1 and r[1] == m3_team2) or
-                      (r[0] == m3_team2 and r[1] == m3_team1)), None)
-        m3_winner = result[2] if result else (m3_team1 if random.choice([True, False]) else m3_team2)
-    else:
-        m3_winner = m3_team1 if random.choice([True, False]) else m3_team2
-    m3_loser = m3_team1 if m3_winner == m3_team2 else m3_team2
-    rounds['M3']['winner'] = m3_winner
-    rounds['M3']['loser'] = m3_loser
-    if debug:
-        print(f"{m3_team1} vs {m3_team2} -> 胜者: {m3_winner}, 败者: {m3_loser}")
-
-    # -------------------------- M4: 右半区败者组第一轮（Alpha4 vs M2败者） --------------------------
-    if debug:
-        print("\n=== M4: 右半区败者组第一轮（Alpha4 vs M2败者）===")
-    m4_team1, m4_team2 = right_bracket[3], m2_loser  # Alpha4, M2败者
-    rounds['M4']['teams'] = [m4_team1, m4_team2]
-    if use_real_data and real_results['playoffs']:
-        result = next((r for r in real_results['playoffs'] if
-                      (r[0] == m4_team1 and r[1] == m4_team2) or
-                      (r[0] == m4_team2 and r[1] == m4_team1)), None)
-        m4_winner = result[2] if result else (m4_team1 if random.choice([True, False]) else m4_team2)
-    else:
-        m4_winner = m4_team1 if random.choice([True, False]) else m4_team2
-    m4_loser = m4_team1 if m4_winner == m4_team2 else m4_team2
-    rounds['M4']['winner'] = m4_winner
-    rounds['M4']['loser'] = m4_loser
-    if debug:
-        print(f"{m4_team1} vs {m4_team2} -> 胜者: {m4_winner}, 败者: {m4_loser}")
-
-    # -------------------------- M5: 左半区胜者组第二轮（Alpha1 vs M1胜者） --------------------------
-    if debug:
-        print("\n=== M5: 左半区胜者组第二轮（Alpha1 vs M1胜者）===")
-    m5_team1, m5_team2 = left_bracket[0], m1_winner  # Alpha1, M1胜者
-    rounds['M5']['teams'] = [m5_team1, m5_team2]
-    if use_real_data and real_results['playoffs']:
-        result = next((r for r in real_results['playoffs'] if
-                      (r[0] == m5_team1 and r[1] == m5_team2) or
-                      (r[0] == m5_team2 and r[1] == m5_team1)), None)
-        m5_winner = result[2] if result else (m5_team1 if random.choice([True, False]) else m5_team2)
-    else:
-        m5_winner = m5_team1 if random.choice([True, False]) else m5_team2
-    m5_loser = m5_team1 if m5_winner == m5_team2 else m5_team2
-    rounds['M5']['winner'] = m5_winner
-    rounds['M5']['loser'] = m5_loser
-    if debug:
-        print(f"{m5_team1} vs {m5_team2} -> 胜者: {m5_winner}, 败者: {m5_loser}")
-
-    # -------------------------- M6: 右半区胜者组第二轮（Omega1 vs M2胜者） --------------------------
-    if debug:
-        print("\n=== M6: 右半区胜者组第二轮（Omega1 vs M2胜者）===")
-    m6_team1, m6_team2 = right_bracket[0], m2_winner  # Omega1, M2胜者
-    rounds['M6']['teams'] = [m6_team1, m6_team2]
-    if use_real_data and real_results['playoffs']:
-        result = next((r for r in real_results['playoffs'] if
-                      (r[0] == m6_team1 and r[1] == m6_team2) or
-                      (r[0] == m6_team2 and r[1] == m6_team1)), None)
-        m6_winner = result[2] if result else (m6_team1 if random.choice([True, False]) else m6_team2)
-    else:
-        m6_winner = m6_team1 if random.choice([True, False]) else m6_team2
-    m6_loser = m6_team1 if m6_winner == m6_team2 else m6_team2
-    rounds['M6']['winner'] = m6_winner
-    rounds['M6']['loser'] = m6_loser
-    if debug:
-        print(f"{m6_team1} vs {m6_team2} -> 胜者: {m6_winner}, 败者: {m6_loser}")
-
-    # -------------------------- M7: 左半区败者组第二轮（M3胜者 vs M6败者） --------------------------
-    if debug:
-        print("\n=== M7: 左半区败者组第二轮（M3胜者 vs M6败者）===")
-    m7_team1, m7_team2 = m3_winner, m6_loser  # M3胜者, M6败者
-    rounds['M7']['teams'] = [m7_team1, m7_team2]
-    if use_real_data and real_results['playoffs']:
-        result = next((r for r in real_results['playoffs'] if
-                      (r[0] == m7_team1 and r[1] == m7_team2) or
-                      (r[0] == m7_team2 and r[1] == m7_team1)), None)
-        m7_winner = result[2] if result else (m7_team1 if random.choice([True, False]) else m7_team2)
-    else:
-        m7_winner = m7_team1 if random.choice([True, False]) else m7_team2
-    m7_loser = m7_team1 if m7_winner == m7_team2 else m7_team2
-    rounds['M7']['winner'] = m7_winner
-    rounds['M7']['loser'] = m7_loser
-    if debug:
-        print(f"{m7_team1} vs {m7_team2} -> 胜者: {m7_winner}, 败者: {m7_loser}")
-
-    # -------------------------- M8: 右半区败者组第二轮（M4胜者 vs M5败者） --------------------------
-    if debug:
-        print("\n=== M8: 右半区败者组第二轮（M4胜者 vs M5败者）===")
-    m8_team1, m8_team2 = m4_winner, m5_loser  # M4胜者, M5败者
-    rounds['M8']['teams'] = [m8_team1, m8_team2]
-    if use_real_data and real_results['playoffs']:
-        result = next((r for r in real_results['playoffs'] if
-                      (r[0] == m8_team1 and r[1] == m8_team2) or
-                      (r[0] == m8_team2 and r[1] == m8_team1)), None)
-        m8_winner = result[2] if result else (m8_team1 if random.choice([True, False]) else m8_team2)
-    else:
-        m8_winner = m8_team1 if random.choice([True, False]) else m8_team2
-    m8_loser = m8_team1 if m8_winner == m8_team2 else m8_team2
-    rounds['M8']['winner'] = m8_winner
-    rounds['M8']['loser'] = m8_loser
-    if debug:
-        print(f"{m8_team1} vs {m8_team2} -> 胜者: {m8_winner}, 败者: {m8_loser}")
-
-    # -------------------------- M9: 胜者组决赛（M5胜者 vs M6胜者） --------------------------
-    if debug:
-        print("\n=== M9: 胜者组决赛（M5胜者 vs M6胜者）===")
-    m9_team1, m9_team2 = m5_winner, m6_winner  # M5胜者, M6胜者
-    rounds['M9']['teams'] = [m9_team1, m9_team2]
-    if use_real_data and real_results['playoffs']:
-        result = next((r for r in real_results['playoffs'] if
-                      (r[0] == m9_team1 and r[1] == m9_team2) or
-                      (r[0] == m9_team2 and r[1] == m9_team1)), None)
-        m9_winner = result[2] if result else (m9_team1 if random.choice([True, False]) else m9_team2)
-    else:
-        m9_winner = m9_team1 if random.choice([True, False]) else m9_team2
-    m9_loser = m9_team1 if m9_winner == m9_team2 else m9_team2
-    rounds['M9']['winner'] = m9_winner
-    rounds['M9']['loser'] = m9_loser
-    if debug:
-        print(f"{m9_team1} vs {m9_team2} -> 胜者: {m9_winner}, 败者: {m9_loser}")
-
-    # -------------------------- M10: 败者组半决赛（M7胜者 vs M8胜者） --------------------------
-    if debug:
-        print("\n=== M10: 败者组半决赛（M7胜者 vs M8胜者）===")
-    m10_team1, m10_team2 = m7_winner, m8_winner  # M7胜者, M8胜者
-    rounds['M10']['teams'] = [m10_team1, m10_team2]
-    if use_real_data and real_results['playoffs']:
-        result = next((r for r in real_results['playoffs'] if
-                      (r[0] == m10_team1 and r[1] == m10_team2) or
-                      (r[0] == m10_team2 and r[1] == m10_team1)), None)
-        m10_winner = result[2] if result else (m10_team1 if random.choice([True, False]) else m10_team2)
-    else:
-        m10_winner = m10_team1 if random.choice([True, False]) else m10_team2
-    m10_loser = m10_team1 if m10_winner == m10_team2 else m10_team2
-    rounds['M10']['winner'] = m10_winner
-    rounds['M10']['loser'] = m10_loser
-    if debug:
-        print(f"{m10_team1} vs {m10_team2} -> 胜者: {m10_winner}, 败者: {m10_loser}（殿军）")
-
-    # -------------------------- M11: 败者组决赛（M9败者 vs M10胜者） --------------------------
-    if debug:
-        print("\n=== M11: 败者组决赛（M9败者 vs M10胜者）===")
-    m11_team1, m11_team2 = m9_loser, m10_winner  # M9败者, M10胜者
-    rounds['M11']['teams'] = [m11_team1, m11_team2]
-    if use_real_data and real_results['playoffs']:
-        result = next((r for r in real_results['playoffs'] if
-                      (r[0] == m11_team1 and r[1] == m11_team2) or
-                      (r[0] == m11_team2 and r[1] == m11_team1)), None)
-        m11_winner = result[2] if result else (m11_team1 if random.choice([True, False]) else m11_team2)
-    else:
-        m11_winner = m11_team1 if random.choice([True, False]) else m11_team2
-    m11_loser = m11_team1 if m11_winner == m11_team2 else m11_team2
-    rounds['M11']['winner'] = m11_winner
-    rounds['M11']['loser'] = m11_loser
-    if debug:
-        print(f"{m11_team1} vs {m11_team2} -> 胜者: {m11_winner}, 败者: {m11_loser}（季军）")
-
-    # -------------------------- M12: 总决赛（M9胜者 vs M11胜者） --------------------------
-    if debug:
-        print("\n=== M12: 总决赛（M9胜者 vs M11胜者）===")
-    m12_team1, m12_team2 = m9_winner, m11_winner  # M9胜者, M11胜者
-    rounds['M12']['teams'] = [m12_team1, m12_team2]
-    if use_real_data and real_results['playoffs']:
-        result = next((r for r in real_results['playoffs'] if
-                      (r[0] == m12_team1 and r[1] == m12_team2) or
-                      (r[0] == m12_team2 and r[1] == m12_team1)), None)
-        champion = result[2] if result else (m12_team1 if random.choice([True, False]) else m12_team2)
-    else:
-        champion = m12_team1 if random.choice([True, False]) else m12_team2
-    runner_up = m12_team2 if champion == m12_team1 else m12_team1
-    rounds['M12']['winner'] = champion
-    rounds['M12']['loser'] = runner_up
-    if debug:
-        print(f"{m12_team1} vs {m12_team2} -> 冠军: {champion}, 亚军: {runner_up}")
-
-    # -------------------------- 排名逻辑 --------------------------
+    # 排名逻辑
     third_place = m11_loser  # M11败者
     fourth_place = m10_loser  # M10败者
     if debug:
@@ -383,9 +175,7 @@ def play_playoffs(qualified_teams_a, qualified_teams_b, initial_pts, regular_pts
         print(f"3. {third_place}（季军 +4分）")
         print(f"4. {fourth_place}（殿军 +3分）")
 
-    # -------------------------- Graphviz 布局与连线 --------------------------
-    # 列分组：M1-M4（列1）、M5-M8（列2）、M9-M10（列3）、M11-M12（列4）
-    # 子图控制列布局（同一列节点水平对齐）
+    # Graphviz 布局与连线
     column_config = [
         ("Round 1", ['M1', 'M2', 'M3', 'M4']),  # 第一轮
         ("Round 2", ['M5', 'M6', 'M7', 'M8']),  # 第二轮
@@ -393,9 +183,7 @@ def play_playoffs(qualified_teams_a, qualified_teams_b, initial_pts, regular_pts
         ("Finals", ['M11', 'M12'])  # 总决赛
     ]
 
-    # -------------------------- Graphviz 布局与连线 --------------------------
     for label, nodes in column_config:
-        # 生成子图名称（替换空格为下划线，确保合法）
         subgraph_name = f"cluster_{label.lower().replace(' ', '_')}"
         with dot.subgraph(name=subgraph_name, graph_attr={'rank': 'same', 'label': label}) as sub:
             for node in nodes:
@@ -403,7 +191,6 @@ def play_playoffs(qualified_teams_a, qualified_teams_b, initial_pts, regular_pts
                 teams = rounds[node]['teams']
                 winner = rounds[node]['winner']
                 label_text = f"{node}\n{teams[0]} vs {teams[1]}\nW: {winner}" if teams else node
-
                 # 颜色区分：胜者组（M1-M2, M5-M6, M9, M12）浅蓝色；败者组（M3-M4, M7-M8, M10-M11）浅红色
                 color = "lightblue" if node in ['M1', 'M2', 'M5', 'M6', 'M9', 'M12'] else "lightcoral"
                 sub.node(node, label=label_text, color=color)
