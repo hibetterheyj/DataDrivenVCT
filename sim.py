@@ -367,7 +367,7 @@ def play_playoffs(qualified_teams_a, qualified_teams_b, initial_pts, regular_pts
         champion = result[2] if result else (m12_team1 if random.choice([True, False]) else m12_team2)
     else:
         champion = m12_team1 if random.choice([True, False]) else m12_team2
-    runner_up = m12_team1 if champion == m12_team2 else m12_team1
+    runner_up = m12_team2 if champion == m12_team1 else m12_team1
     rounds['M12']['winner'] = champion
     rounds['M12']['loser'] = runner_up
     if debug:
@@ -524,7 +524,7 @@ def simulate_all_games(num_simulations, yaml_folder, use_real_data, num_threads)
 def main(args):
     global debug
     debug = True
-    random.seed(77)
+    random.seed(args.random_seed)
 
     # 初始积分
     initial_pts = load_initial_pts(args.yaml_folder)
@@ -585,8 +585,7 @@ def multi_sim(args):
     debug = args.debug
     yaml_folder = args.yaml_folder
     num_threads = min(args.num_threads, args.num_simulations)
-    random_seed = 77  # 假设随机种子为77
-    random.seed(random_seed)
+    random.seed(args.random_seed)
 
     if args.use_real_data:
         global real_results
@@ -595,7 +594,7 @@ def multi_sim(args):
     # 打印模拟参数
     print(f"模拟参数：")
     print(f"  模拟次数: {args.num_simulations}")
-    print(f"  使用随机种子: {random_seed}")
+    print(f"  使用随机种子: {args.random_seed}")
     print(f"  使用线程数: {num_threads}")
 
     start_time = time.time()
@@ -644,6 +643,7 @@ if __name__ == "__main__":
     parser.add_argument('--num_simulations', type=int, default=500, help='模拟实验的次数，默认500')
     parser.add_argument('--debug', action='store_true', help='是否打印内容数据')
     parser.add_argument('--num_threads', type=int, default=8, help='模拟使用的线程数')
+    parser.add_argument('--random_seed', type=int, default=77, help='随机种子')
     args = parser.parse_args()
 
     if args.multi:
