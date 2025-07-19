@@ -1,11 +1,15 @@
-import random
-import json
-import graphviz
-import argparse
 import os
-import requests
-import tqdm
+import json
+import random
+import argparse
+import concurrent.futures
+import time
+
 import yaml
+import requests
+import graphviz
+import tqdm
+
 
 # 全局 debug 变量
 debug = False
@@ -14,17 +18,14 @@ def load_yaml(file_path):
     with open(file_path, 'r') as f:
         return yaml.safe_load(f)
 
-
 def group_teams(yaml_folder):
     """返回预设的两个小组"""
     groups = load_yaml(os.path.join(yaml_folder, 'groups.yaml'))
     return groups['Alpha'], groups['Omega']
 
-
 def load_initial_pts(yaml_folder):
     """加载初始积分"""
     return load_yaml(os.path.join(yaml_folder, 'initial_pts.yaml'))
-
 
 def load_real_results(source="local", results_file="results.yaml", yaml_folder="./yaml"):
     """从本地文件或网络API加载真实比赛结果"""
@@ -56,7 +57,6 @@ def load_real_results(source="local", results_file="results.yaml", yaml_folder="
             if debug:
                 print(f"加载网络数据失败: {e}")
             return {'regular_season': [], 'playoffs': []}
-
 
 def play_regular_season(group, use_real_data=False):
     """进行常规赛：每组内每支队伍与同组其他队伍各打一场比赛"""
@@ -111,7 +111,6 @@ def get_qualified(group, pts, win_loss_dict, num_qualify=4):
         formatted_group = [f"{team}({win_loss_dict[team]})" for team in sorted_group]
         print(f"\n{group} 小组排名: {formatted_group}")
     return sorted_group[:num_qualify]
-
 
 def play_playoffs(qualified_teams_a, qualified_teams_b, initial_pts, regular_pts, use_real_data=False):
     """季后赛：M1-M12编号 + 从左到右布局 + 双败淘汰可视化"""
@@ -368,7 +367,7 @@ def play_playoffs(qualified_teams_a, qualified_teams_b, initial_pts, regular_pts
         champion = result[2] if result else (m12_team1 if random.choice([True, False]) else m12_team2)
     else:
         champion = m12_team1 if random.choice([True, False]) else m12_team2
-    runner_up = m12_team1 if champion == m12_team2 else m12_team2
+    runner_up = m12_team1 if champion == m12_team2 else m12_team1
     rounds['M12']['winner'] = champion
     rounds['M12']['loser'] = runner_up
     if debug:
@@ -468,16 +467,29 @@ def play_playoffs(qualified_teams_a, qualified_teams_b, initial_pts, regular_pts
         'champions_slots': [champion, runner_up, third_seed, fourth_seed]
     }
 
-def simulate_regular_seasons(num_simulations, yaml_folder):
+def simulate_single_run(yaml_folder, use_real_data):
+    alpha, omega = group_teams(yaml_folder)
+    initial_pts = load_initial_pts(yaml_folder)
+
+    alpha_pts, alpha_win_loss = play_regular_season(alpha, use_real_data)
+    omega_pts, omega_win_loss = play_regular_season(omega, use_real_data)
+
+    alpha_qualified = get_qualified(alpha, alpha_pts, alpha_win_loss)
+    omega_qualified = get_qualified(omega, omega_pts, omega_win_loss)
+
+    regular_pts = {**alpha_pts, **omega_pts}
+    champions_slots = play_playoffs(alpha_qualified, omega_qualified, initial_pts, regular_pts, use_real_data)['champions_slots']
+
+    return champions_slots
+
+def simulate_regular_seasons(num_simulations, yaml_folder, use_real_data, num_threads):
     alpha, omega = group_teams(yaml_folder)
     alpha_qualify_count = {team: 0 for team in alpha}
     omega_qualify_count = {team: 0 for team in omega}
 
-    for i in tqdm.tqdm(range(num_simulations), desc="模拟常规赛"):
-        if debug:
-            print(f"\n####### 第{i + 1}次模拟 #######\n")
-        alpha_pts, alpha_win_loss = play_regular_season(alpha, use_real_data=True)
-        omega_pts, omega_win_loss = play_regular_season(omega, use_real_data=True)
+    def single_simulation():
+        alpha_pts, alpha_win_loss = play_regular_season(alpha, use_real_data)
+        omega_pts, omega_win_loss = play_regular_season(omega, use_real_data)
 
         alpha_qualified = get_qualified(alpha, alpha_pts, alpha_win_loss)
         omega_qualified = get_qualified(omega, omega_pts, omega_win_loss)
@@ -487,33 +499,27 @@ def simulate_regular_seasons(num_simulations, yaml_folder):
         for team in omega_qualified:
             omega_qualify_count[team] += 1
 
+    with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
+        list(tqdm.tqdm(executor.map(lambda _: single_simulation(), range(num_simulations)), total=num_simulations, desc="模拟常规赛"))
+
     alpha_probabilities = {team: count / num_simulations for team, count in alpha_qualify_count.items()}
     omega_probabilities = {team: count / num_simulations for team, count in omega_qualify_count.items()}
 
     return alpha_probabilities, omega_probabilities
 
-def simulate_all_games(num_simulations, yaml_folder):
+def simulate_all_games(num_simulations, yaml_folder, use_real_data, num_threads):
     alpha, omega = group_teams(yaml_folder)
-    initial_pts = load_initial_pts(yaml_folder)
     champions_slots_count = {team: 0 for team in alpha + omega}
 
-    for i in tqdm.tqdm(range(num_simulations), desc="模拟常规赛+季后赛"):
-        if debug:
-            print(f"\n####### 第{i + 1}次模拟 #######\n")
-        alpha_pts, alpha_win_loss = play_regular_season(alpha, use_real_data=True)
-        omega_pts, omega_win_loss = play_regular_season(omega, use_real_data=True)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
+        results = list(tqdm.tqdm(executor.map(lambda _: simulate_single_run(yaml_folder, use_real_data), range(num_simulations)), total=num_simulations, desc="模拟常规赛+季后赛"))
 
-        alpha_qualified = get_qualified(alpha, alpha_pts, alpha_win_loss)
-        omega_qualified = get_qualified(omega, omega_pts, omega_win_loss)
-
-        regular_pts = {**alpha_pts, **omega_pts}
-        champions_slots = play_playoffs(alpha_qualified, omega_qualified, initial_pts, regular_pts, use_real_data=False)['champions_slots']
+    for champions_slots in results:
         for team in champions_slots:
             champions_slots_count[team] += 1
 
     probabilities = {team: count / num_simulations for team, count in champions_slots_count.items()}
     return probabilities
-
 
 def main(args):
     global debug
@@ -574,42 +580,70 @@ def main(args):
         for i, (team, score) in enumerate(final_ranking, 1):
             print(f"{i}. {team}: {score}分")
 
-
 def multi_sim(args):
     global debug
     debug = args.debug
     yaml_folder = args.yaml_folder
+    num_threads = min(args.num_threads, args.num_simulations)
+    random_seed = 77  # 假设随机种子为77
+    random.seed(random_seed)
+
     if args.use_real_data:
         global real_results
         real_results = load_real_results(args.source, args.results_file, args.yaml_folder)
 
+    # 打印模拟参数
+    print(f"模拟参数：")
+    print(f"  模拟次数: {args.num_simulations}")
+    print(f"  使用随机种子: {random_seed}")
+    print(f"  使用线程数: {num_threads}")
+
+    start_time = time.time()
+
     # 模拟常规赛，计算晋级季后赛概率
-    alpha_probs, omega_probs = simulate_regular_seasons(args.num_simulations, yaml_folder)
+    alpha_probs, omega_probs = simulate_regular_seasons(args.num_simulations, yaml_folder, args.use_real_data, num_threads)
+
+    # 对 Alpha 组概率进行排序并打印
     print("\nAlpha组晋级季后赛概率:")
-    for team, prob in alpha_probs.items():
+    sorted_alpha_probs = sorted(alpha_probs.items(), key=lambda x: x[1], reverse=True)
+    for i, (team, prob) in enumerate(sorted_alpha_probs, start=1):
+        if i == 5:
+            print("------")
         print(f"{team}: {prob * 100:.2f}%")
 
+    # 对 Omega 组概率进行排序并打印
     print("\nOmega组晋级季后赛概率:")
-    for team, prob in omega_probs.items():
+    sorted_omega_probs = sorted(omega_probs.items(), key=lambda x: x[1], reverse=True)
+    for i, (team, prob) in enumerate(sorted_omega_probs, start=1):
+        if i == 5:
+            print("------")
         print(f"{team}: {prob * 100:.2f}%")
 
     # 模拟常规赛+季后赛，计算晋级世界赛概率
-    champions_slots_probs = simulate_all_games(args.num_simulations, yaml_folder)
+    champions_slots_probs = simulate_all_games(args.num_simulations, yaml_folder, args.use_real_data, num_threads)
+    # 按照概率倒序排序
+    sorted_champions_slots_probs = sorted(champions_slots_probs.items(), key=lambda x: x[1], reverse=True)
+
     print("\n晋级世界赛概率:")
-    for team, prob in champions_slots_probs.items():
+    for i, (team, prob) in enumerate(sorted_champions_slots_probs, start=1):
+        if i == 5:
+            print("------")
         print(f"{team}: {prob * 100:.2f}%")
 
+    end_time = time.time()
+    simulation_time = end_time - start_time
+    print(f"\n模拟总时间: {simulation_time:.2f} 秒")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='VCT 2025 China Stage 2 Simulation')
     parser.add_argument('--use_real_data', action='store_false', help='是否使用真实比赛数据')
     parser.add_argument('--source', default='local', choices=['local', 'online'], help='数据加载源 (local/online)')
     parser.add_argument('--results_file', default='results.yaml', help='比赛结果文件路径')
-    parser.add_argument('--num_games', type=int, default=5, help='每组内每支队伍的比赛场数')
     parser.add_argument('--yaml_folder', default='./yaml', help='YAML文件夹的位置')
     parser.add_argument('--multi', action='store_true', default=False, help='是否进行多次模拟实验，默认关闭')
-    parser.add_argument('--num_simulations', type=int, default=5000, help='模拟实验的次数，默认10000')
+    parser.add_argument('--num_simulations', type=int, default=500, help='模拟实验的次数，默认500')
     parser.add_argument('--debug', action='store_true', help='是否打印内容数据')
+    parser.add_argument('--num_threads', type=int, default=8, help='模拟使用的线程数')
     args = parser.parse_args()
 
     if args.multi:
