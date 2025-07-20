@@ -4,7 +4,11 @@
 ### 代码
 **sim.py**：Python 核心脚本，模拟 VCT CN 2025 Stage 2 比赛结果，可从本地或网络获取真实数据，无真实数据则随机模拟。涵盖常规赛和季后赛模拟，能计算队伍积分、排名及晋级概率。使用 Graphviz 可视化季后赛赛果
 
-![playoffs_bracket.png](playoffs_bracket.png) 生成的季后赛赛果。
+生成的季后赛赛果样例（图一乐，just for fun）：
+
+| **VCT China**                                  | **VCT Pacific**                                          |
+| ---------------------------------------------- | -------------------------------------------------------- |
+| ![CN赛区季后赛对阵图](playoffs_bracket_cn.png) | ![Pacific赛区季后赛对阵图](playoffs_bracket_pacific.png) |
 
 ### 依赖
 - **`requirements.txt`**：列出项目所需 Python 依赖库，如 `graphviz`、`requests` 和 `PyYAML`，保障项目正常运行。

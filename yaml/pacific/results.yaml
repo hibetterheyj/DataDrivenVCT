@@ -1,0 +1,16 @@
+regular_season:
+  # WEEK1
+  - ["BME", "TLN", [0, 2]]
+  - ["NS", "TS", [2, 1]]
+  - ["T1", "PRX", [0, 2]]
+  - ["DRX", "GEN", [0, 2]]
+  - ["RRQ", "GE", [0, 2]]
+  - ["ZETA", "DFM", [1, 2]]
+  - ["DRX", "NS", [2, 1]]
+  - ["BME", "T1", [0, 2]]
+  - ["GE", "TS", [1, 2]]
+  - ["PRX", "DFM", [2, 0]]
+  - ["RRQ", "GEN", [2, 1]]
+  - ["TLN", "ZETA", [2, 0]]
+
+playoffs: []

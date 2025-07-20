@@ -1,3 +1,4 @@
+# https://www.vlr.gg/event/matches/2499/vct-2025-china-stage-2/
 regular_season:
   - ["EDG", "TEC", [2, 0]]
   - ["BLG", "TYL", [2, 0]]
@@ -12,8 +13,8 @@ regular_season:
   - ["BLG", "JDG", [2, 1]]
   - ["TYL", "TEC", [2, 0]]
   - ["TE", "EDG", [2, 1]]
-  - ["DRG", "AG", null]
-  - ["XLG", "WOL", null]
+  - ["DRG", "AG", [2, 1]]
+  - ["XLG", "WOL", [2, 0]]
   # WEEK3
   - ["EDG", "BLG", null]
 

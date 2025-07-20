@@ -1,6 +1,6 @@
 """
 python sim.py
-python sim.py --multi --num_simulations 500
+python sim.py --multi --num_simulations 100000
 python sim.py --multi --num_simulations 10000 --region pacific
 """
 
@@ -191,8 +191,8 @@ def play_playoffs(qualified_teams_a, qualified_teams_b, initial_pts, regular_pts
 
     # Graphviz 布局与连线
     column_config = [
-        ("Round 1", ['M1', 'M2', 'M3', 'M4']),  # 第一轮
-        ("Round 2", ['M5', 'M6', 'M7', 'M8']),  # 第二轮
+        ("Round 1", ['M2', 'M1', 'M4', 'M3']),  # 第一轮
+        ("Round 2", ['M6', 'M5', 'M7', 'M8']),  # 第二轮
         ("Round 3", ['M9', 'M10']),  # 第三轮
         ("Finals", ['M11', 'M12'])  # 总决赛
     ]
@@ -339,7 +339,27 @@ def simulate_all_games(num_simulations, alpha, omega, initial_pts, use_real_data
 def main(args):
     global debug
     debug = True
-    random.seed(args.random_seed)
+    yaml_folder = args.yaml_folder
+    region = args.region
+    random_seed = args.random_seed
+    random.seed(random_seed)
+
+    use_real_data = args.use_real_data
+    if use_real_data:
+        global real_results
+        real_results = load_real_results(
+            args.source,
+            args.results_file,
+            yaml_folder,
+            region
+        )
+
+    # 打印模拟参数
+    print("模拟参数：")
+    print(f"  模拟赛区: {region}")
+    print(f"  使用随机种子: {random_seed}")
+    print(f"  使用真实数据: {use_real_data}")
+    print(f"  打印详细结果: {debug}")
 
     # 初始积分
     initial_pts = load_initial_pts(args.yaml_folder, args.region)
@@ -354,10 +374,6 @@ def main(args):
         print("\n分组：")
         print(f"Alpha组：{group_alpha}")
         print(f"Omega组：{group_omega}")
-
-    if args.use_real_data:
-        global real_results
-        real_results = load_real_results(args.source, args.results_file, args.yaml_folder, args.region)
 
     # 常规赛
     alpha_pts, alpha_win_loss = play_regular_season(group_alpha, args.use_real_data)
@@ -386,7 +402,12 @@ def main(args):
     playoff_results = play_playoffs(qualify_a, qualify_b, initial_pts, regular_pts, args.use_real_data)
 
     # 渲染PNG并打开
-    playoff_results['dot_graph'].render('playoffs_bracket', format='png', view=True)
+    playoff_results['dot_graph'].render(
+        f'playoffs_bracket_{region}',
+        format='png',
+        view=True,
+        cleanup=True,
+        )
 
     # 最终积分排名
     final_ranking = sorted(playoff_results['final_pts'].items(), key=lambda x: x[1], reverse=True)
@@ -416,18 +437,27 @@ def multi_sim(args):
     yaml_folder = args.yaml_folder
     region = args.region
     num_threads = min(args.num_threads, args.num_simulations)
-    random.seed(args.random_seed)
+    random_seed = args.random_seed
+    random.seed(random_seed)
 
-    if args.use_real_data:
+    use_real_data = args.use_real_data
+    if use_real_data:
         global real_results
-        real_results = load_real_results(args.source, args.results_file, args.yaml_folder, args.region)
+        real_results = load_real_results(
+            args.source,
+            args.results_file,
+            yaml_folder,
+            region
+        )
 
     # 打印模拟参数
-    print(f"模拟参数：")
+    print("模拟参数：")
     print(f"  模拟赛区: {region}")
     print(f"  模拟次数: {args.num_simulations}")
-    print(f"  使用随机种子: {args.random_seed}")
     print(f"  使用线程数: {num_threads}")
+    print(f"  使用随机种子: {random_seed}")
+    print(f"  使用真实数据: {use_real_data}")
+    print(f"  打印详细结果: {debug}")
 
     start_time = time.time()
 
@@ -468,8 +498,8 @@ def multi_sim(args):
     print_probabilities("Alpha组晋级季后赛概率", alpha_probs)
     print_probabilities("Omega组晋级季后赛概率", omega_probs)
     print_probabilities("晋级冠军赛概率", champions_slots_probs)
-    print_probabilities("不晋级季后赛但可以晋级冠军赛概率", champions_slots_no_playoffs_probs)
-    print_probabilities("当队伍获得冠军赛席位时，以冠/亚军身份（前二种子）获得的比例", champions_slots_must_top2_probs, reverse=False)
+    print_probabilities("靠积分，不晋级季后赛进冠军赛概率", champions_slots_no_playoffs_probs)
+    print_probabilities("不靠积分，只能以冠亚进占所有进冠军赛可能比例", champions_slots_must_top2_probs, reverse=False)
 
     # 构建总结字典
     summary_dict = {
@@ -493,7 +523,7 @@ if __name__ == "__main__":
     parser.add_argument('--num_simulations', type=int, default=500, help='模拟实验的次数，默认500')
     parser.add_argument('--debug', action='store_true', help='是否打印内容数据')
     parser.add_argument('--num_threads', type=int, default=8, help='模拟使用的线程数')
-    parser.add_argument('--random_seed', type=int, default=77, help='随机种子')
+    parser.add_argument('--random_seed', type=int, default=77777, help='随机种子')
     args = parser.parse_args()
 
     if args.multi:
