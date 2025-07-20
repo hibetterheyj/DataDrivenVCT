@@ -11,7 +11,6 @@ import argparse
 import concurrent.futures
 import time
 from pathlib import Path
-import random
 from collections import defaultdict
 from math import comb
 
@@ -372,15 +371,9 @@ def play_playoffs(
         map_based=False,
         map_pool=None
         ):
-    """季后赛：M1-M12编号 + 从左到右布局 + 双败淘汰可视化"""
+    """季后赛：M1-M12编号 + 从左到右布局 + 双败淘汰"""
     if debug:
         print("\n=== 季后赛（M1-M12轮次，从左到右布局）===")
-
-    # 初始化Graphviz（从左到右布局，PNG格式）
-    dot = graphviz.Digraph(comment='Playoffs Bracket', format='png')
-    dot.attr(rankdir='LR', size='15,12', splines='ortho')  # 从左到右，正交连线
-    dot.attr('node', shape='box', style='rounded,filled', color='black', fontname='Arial')
-    dot.attr('edge', arrowhead='vee')
 
     # 分组排名解析
     alpha1, alpha2, alpha3, alpha4 = qualified_teams_a
@@ -493,43 +486,6 @@ def play_playoffs(
         print(f"3. {third_place}（季军 +4分）")
         print(f"4. {fourth_place}（殿军 +3分）")
 
-    # Graphviz 布局与连线
-    column_config = [
-        ("Round 1", ['M2', 'M1', 'M4', 'M3']),  # 第一轮
-        ("Round 2", ['M6', 'M5', 'M7', 'M8']),  # 第二轮
-        ("Round 3", ['M9', 'M10']),  # 第三轮
-        ("Finals", ['M11', 'M12'])  # 总决赛
-    ]
-
-    for label, nodes in column_config:
-        subgraph_name = f"cluster_{label.lower().replace(' ', '_')}"
-        with dot.subgraph(name=subgraph_name, graph_attr={'rank': 'same', 'label': label}) as sub:
-            for node in nodes:
-                # 节点标签：轮次 + 队伍1 vs 队伍2 + 胜者
-                teams = rounds[node]['teams']
-                winner = rounds[node]['winner']
-                label_text = f"{node}\n{teams[0]} vs {teams[1]}\nW: {winner}" if teams else node
-                # 颜色区分：胜者组（M1-M2, M5-M6, M9, M12）浅蓝色；败者组（M3-M4, M7-M8, M10-M11）浅红色
-                color = "lightblue" if node in ['M1', 'M2', 'M5', 'M6', 'M9', 'M12'] else "lightcoral"
-                sub.node(node, label=label_text, color=color)
-
-    # 胜者线（红色粗实线）：连接晋级关系
-    winner_edges = [
-        ('M1', 'M5'),  # M1胜者 → M5
-        ('M2', 'M6'),  # M2胜者 → M6
-        ('M3', 'M7'),  # M3胜者 → M7
-        ('M4', 'M8'),  # M4胜者 → M8
-        ('M5', 'M9'),  # M5胜者 → M9
-        ('M6', 'M9'),  # M6胜者 → M9
-        ('M7', 'M10'),  # M7胜者 → M10
-        ('M8', 'M10'),  # M8胜者 → M10
-        ('M9', 'M12'),  # M9胜者 → M12
-        ('M10', 'M11'),  # M10胜者 → M11
-        ('M11', 'M12'),  # M11胜者 → M12
-    ]
-    for u, v in winner_edges:
-        dot.edge(u, v, color="red", penwidth="2")  # 胜者线：红色粗实线
-
     # 更新积分
     updated_pts = {team: initial_pts.get(team, 0) + regular_pts.get(team, 0) for team in set(initial_pts) | set(regular_pts)}
     updated_pts[third_place] += 4
@@ -554,11 +510,115 @@ def play_playoffs(
         'third_place': third_place,
         'fourth_place': fourth_place,
         'final_pts': updated_pts,
-        'dot_graph': dot,  # 返回Graphviz图对象
+        'rounds': rounds,  # 新增轮次数据
         'third_seed': third_seed,
         'fourth_seed': fourth_seed,
         'champions_slots': [champion, runner_up, third_seed, fourth_seed]
     }
+
+def create_playoffs_visualization(playoff_results, region='cn'):
+    """
+    创建季后赛双败淘汰赛制的可视化图表
+    :param playoff_results: play_playoffs函数返回的结果字典
+    :param region: 赛区名称，用于文件名
+    :return: Graphviz对象
+    """
+    rounds = playoff_results['rounds']
+
+    # 初始化Graphviz（从左到右布局，PNG格式）
+    dot = graphviz.Digraph(comment='Playoffs Bracket', format='png')
+    dot.attr(rankdir='LR', size='15,12', splines='ortho')  # 从左到右，正交连线
+
+    # 全局节点样式 - 统一尺寸和字体
+    dot.attr('node',
+             shape='box',
+             style='rounded,filled',
+             color='black',
+             fontname='Arial',
+             width='1.6',  # 统一宽度
+             height='0.9',  # 统一高度
+             fixedsize='true')  # 固定尺寸
+
+    dot.attr('edge', arrowhead='vee')
+
+    # 定义列配置（从左到右布局）
+    column_config = [
+        ("Round 1", ['M1', 'M2', 'M3', 'M4']),  # 第一轮
+        ("Round 2", ['M5', 'M6', 'M7', 'M8']),  # 第二轮
+        ("Round 3", ['M9', 'M10']),  # 第三轮
+        ("Finals", ['M11', 'M12'])  # 总决赛
+    ]
+
+    # 创建节点
+    for round_name, match_data in rounds.items():
+        teams = match_data['teams']
+        winner = match_data['winner']
+        score = match_data.get('score', (0, 0))
+
+        # 根据获胜队伍调整比分打印顺序
+        if winner == teams[1]:
+            score_str = f"{score[1]}:{score[0]}" if score else ""
+        else:
+            score_str = f"{score[0]}:{score[1]}" if score else ""
+
+        # 节点标签：轮次 + 队伍1 vs 队伍2 + 比分 + 胜者
+        label_text = f"{round_name}\n{teams[0]} vs {teams[1]}\nScore: {score_str}\nWinner: {winner}"
+
+        # 颜色区分：胜者组（M1-M2, M5-M6, M9, M12）浅蓝色；败者组（M3-M4, M7-M8, M10-M11）浅红色
+        color = "lightblue" if round_name in ['M1', 'M2', 'M5', 'M6', 'M9', 'M12'] else "lightcoral"
+        dot.node(round_name, label=label_text, color=color)
+
+    # 创建列（子图）- 列标题使用加粗加大的Arial字体
+    for label, nodes in column_config:
+        subgraph_name = f"cluster_{label.lower().replace(' ', '_')}"
+        with dot.subgraph(name=subgraph_name, graph_attr={
+            'rank': 'same',
+            'label': label,
+            'fontname': 'Arial',
+            'fontsize': '16',
+            'fontweight': 'bold',
+            'style': 'rounded',
+            'color': 'gray25'
+        }) as sub:
+            for node in nodes:
+                if node in rounds:  # 确保节点存在
+                    sub.node(node)
+
+    # 胜者线（红色粗实线）
+    winner_edges = [
+        ('M1', 'M5'),  # M1胜者 → M5
+        ('M2', 'M6'),  # M2胜者 → M6
+        ('M3', 'M7'),  # M3胜者 → M7
+        ('M4', 'M8'),  # M4胜者 → M8
+        ('M5', 'M9'),  # M5胜者 → M9
+        ('M6', 'M9'),  # M6胜者 → M9
+        ('M7', 'M10'),  # M7胜者 → M10
+        ('M8', 'M10'),  # M8胜者 → M10
+        ('M9', 'M12'),  # M9胜者 → M12
+        ('M10', 'M11'),  # M10胜者 → M11
+        ('M11', 'M12'),  # M11胜者 → M12
+    ]
+    for u, v in winner_edges:
+        dot.edge(u, v, color="red", penwidth="2")
+
+    # 添加冠军节点
+    dot.node('Champion',
+             label=f"🏆 {playoff_results['champion']}",
+             color='gold',
+             fontsize='20',
+             fontweight='bold',
+             fontname='Arial',
+             width='1.2',  # 统一宽度
+             height='0.9')  # 统一高度
+
+    # 使用不可见边连接M12和冠军节点以保持布局
+    dot.edge('M12', 'Champion', style='invis')
+
+    # 渲染图像
+    output_filename = f'playoffs_bracket_{region}'
+    dot.render(output_filename, view=True, cleanup=True)
+    print(f"季后赛对阵图已保存至 {output_filename}.png")
+    return dot
 
 def simulate_single_run(alpha, omega, initial_pts, use_real_data, map_based, map_pool):
     """单次模拟运行，支持地图级别模拟"""
@@ -689,6 +749,7 @@ def main(args):
     # 打印模拟参数
     print("模拟参数：")
     print(f"  模拟赛区: {region}")
+    print(f"  每图模拟: {args.map_based}")
     print(f"  使用随机种子: {random_seed}")
     print(f"  使用真实数据: {use_real_data}")
     print(f"  打印详细结果: {debug}")
@@ -744,20 +805,15 @@ def main(args):
         print("Alpha组:", qualify_a)
         print("Omega组:", qualify_b)
 
-    # 季后赛（含可视化）
+    # 季后赛
     regular_pts = {**alpha_pts, **omega_pts}
     playoff_results = play_playoffs(
         qualify_a, qualify_b, initial_pts, regular_pts,
         args.use_real_data, args.map_based, map_pool
     )
 
-    # 渲染PNG并打开
-    playoff_results['dot_graph'].render(
-        f'playoffs_bracket_{region}',
-        format='png',
-        view=True,
-        cleanup=True,
-        )
+    # 创建可视化
+    create_playoffs_visualization(playoff_results, region=args.region)
 
     # 最终积分排名
     final_ranking = sorted(playoff_results['final_pts'].items(), key=lambda x: x[1], reverse=True)
@@ -807,6 +863,7 @@ def multi_sim(args):
     print("模拟参数：")
     print(f"  模拟赛区: {region}")
     print(f"  模拟次数: {args.num_simulations}")
+    print(f"  每图模拟: {args.map_based}")
     print(f"  使用线程数: {num_threads}")
     print(f"  使用随机种子: {random_seed}")
     print(f"  使用真实数据: {use_real_data}")
@@ -874,12 +931,12 @@ if __name__ == "__main__":
     parser.add_argument('--results_file', default='results.yaml', help='比赛结果文件路径')
     parser.add_argument('--yaml_folder', default='./yaml', help='YAML文件夹的位置')
     parser.add_argument('--region', type=str, default='cn', help='模拟的VCT赛区（目前支持cn/pacific)')
-    parser.add_argument('--map_based', action='store_true', help='启用地图级别模拟')
+    parser.add_argument('--map_based', action='store_false', help='启用地图级别模拟')
     parser.add_argument('--multi', action='store_true', default=False, help='是否进行多次模拟实验，默认关闭')
     parser.add_argument('--num_simulations', type=int, default=500, help='模拟实验的次数，默认500')
     parser.add_argument('--debug', action='store_true', help='是否打印内容数据')
     parser.add_argument('--num_threads', type=int, default=8, help='模拟使用的线程数')
-    parser.add_argument('--random_seed', type=int, default=77777, help='随机种子')
+    parser.add_argument('--random_seed', type=int, default=2, help='随机种子')
     args = parser.parse_args()
 
     if args.multi:
