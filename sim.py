@@ -1,9 +1,16 @@
+"""
+python sim.py
+python sim.py --multi --num_simulations 500
+python sim.py --multi --num_simulations 10000 --region pacific
+"""
+
 import os
 import json
 import random
 import argparse
 import concurrent.futures
 import time
+from pathlib import Path
 
 import yaml
 import requests
@@ -14,23 +21,30 @@ import tqdm
 debug = False
 
 def load_yaml(file_path):
-    with open(file_path, 'r') as f:
+    with open(file_path, 'r', encoding='utf-8') as f:  # 添加编码参数
         return yaml.safe_load(f)
 
-def group_teams(yaml_folder):
+def load_group_teams(yaml_folder, region='cn'):
     """返回预设的两个小组"""
-    groups = load_yaml(os.path.join(yaml_folder, 'groups.yaml'))
+    # 使用Path处理跨平台路径
+    file_path = Path(yaml_folder) / region / 'groups.yaml'
+    groups = load_yaml(file_path)
+    if debug:
+        print(f"加载分组文件: {file_path}")  # 显示完整路径
+        print(groups)
     return groups['Alpha'], groups['Omega']
 
-def load_initial_pts(yaml_folder):
+def load_initial_pts(yaml_folder, region='cn'):
     """加载初始积分"""
-    return load_yaml(os.path.join(yaml_folder, 'initial_pts.yaml'))
+    # 使用Path处理跨平台路径
+    file_path = Path(yaml_folder) / region / 'initial_pts.yaml'
+    return load_yaml(file_path)
 
-def load_real_results(source="local", results_file="results.yaml", yaml_folder="./yaml"):
+def load_real_results(source="local", results_file="results.yaml", yaml_folder="./yaml", region='cn'):
     """从本地文件或网络API加载真实比赛结果"""
     if source == "local":
         try:
-            data = load_yaml(os.path.join(yaml_folder, results_file))
+            data = load_yaml(os.path.join(yaml_folder, region, results_file))
             # 检查是否有 'playoffs' 键，如果没有则添加空列表
             if 'playoffs' not in data:
                 data['playoffs'] = []
@@ -254,10 +268,8 @@ def play_playoffs(qualified_teams_a, qualified_teams_b, initial_pts, regular_pts
         'champions_slots': [champion, runner_up, third_seed, fourth_seed]
     }
 
-def simulate_single_run(yaml_folder, use_real_data):
-    alpha, omega = group_teams(yaml_folder)
-    initial_pts = load_initial_pts(yaml_folder)
-
+def simulate_single_run(alpha, omega, initial_pts, use_real_data):
+    """单次模拟运行，使用预加载的分组和积分数据"""
     alpha_pts, alpha_win_loss = play_regular_season(alpha, use_real_data)
     omega_pts, omega_win_loss = play_regular_season(omega, use_real_data)
 
@@ -267,11 +279,9 @@ def simulate_single_run(yaml_folder, use_real_data):
     regular_pts = {**alpha_pts, **omega_pts}
     playoff_results = play_playoffs(alpha_qualified, omega_qualified, initial_pts, regular_pts, use_real_data)
 
-    # 返回冠军赛席位+季后赛晋级名单
     return playoff_results['champions_slots'], alpha_qualified + omega_qualified
 
-def simulate_regular_seasons(num_simulations, yaml_folder, use_real_data, num_threads):
-    alpha, omega = group_teams(yaml_folder)
+def simulate_regular_seasons(num_simulations, alpha, omega, use_real_data, num_threads):
     alpha_qualify_count = {team: 0 for team in alpha}
     omega_qualify_count = {team: 0 for team in omega}
 
@@ -295,15 +305,16 @@ def simulate_regular_seasons(num_simulations, yaml_folder, use_real_data, num_th
 
     return alpha_probabilities, omega_probabilities
 
-def simulate_all_games(num_simulations, yaml_folder, use_real_data, num_threads):
-    all_teams = group_teams(yaml_folder)[0] + group_teams(yaml_folder)[1]  # 所有队伍
+def simulate_all_games(num_simulations, alpha, omega, initial_pts, use_real_data, num_threads):
+    """模拟所有比赛，使用预加载的分组和积分数据"""
+    all_teams = alpha + omega
     champions_slots_count = {team: 0 for team in all_teams}
-    no_playoffs_but_slot_count = {team: 0 for team in all_teams}  # 未晋级季后赛但获得席位的次数
-    top2_in_slot_count = {team: 0 for team in all_teams}  # 以冠亚身份获得席位的次数
+    no_playoffs_but_slot_count = {team: 0 for team in all_teams}
+    top2_in_slot_count = {team: 0 for team in all_teams}
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
         results = list(tqdm.tqdm(
-            executor.map(lambda _: simulate_single_run(yaml_folder, use_real_data),
+            executor.map(lambda _: simulate_single_run(alpha, omega, initial_pts, use_real_data),
             range(num_simulations)),
             total=num_simulations,
             desc="模拟常规赛+季后赛"
@@ -331,41 +342,41 @@ def main(args):
     random.seed(args.random_seed)
 
     # 初始积分
-    initial_pts = load_initial_pts(args.yaml_folder)
+    initial_pts = load_initial_pts(args.yaml_folder, args.region)
     if debug:
         print("初始积分：")
         for team, score in initial_pts.items():
             print(f"{team}: {score}")
 
     # 分组
-    group_a, group_b = group_teams(args.yaml_folder)
+    group_alpha, group_omega = load_group_teams(args.yaml_folder, args.region)
     if debug:
         print("\n分组：")
-        print(f"Alpha组：{group_a}")
-        print(f"Omega组：{group_b}")
+        print(f"Alpha组：{group_alpha}")
+        print(f"Omega组：{group_omega}")
 
     if args.use_real_data:
         global real_results
-        real_results = load_real_results(args.source, args.results_file, args.yaml_folder)
+        real_results = load_real_results(args.source, args.results_file, args.yaml_folder, args.region)
 
     # 常规赛
-    alpha_pts, alpha_win_loss = play_regular_season(group_a, args.use_real_data)
-    omega_pts, omega_win_loss = play_regular_season(group_b, args.use_real_data)
+    alpha_pts, alpha_win_loss = play_regular_season(group_alpha, args.use_real_data)
+    omega_pts, omega_win_loss = play_regular_season(group_omega, args.use_real_data)
     regular_pts = {**alpha_pts, **omega_pts}
 
     # 常规赛积分分组显示
     if debug:
         print("\n常规赛结束后积分：")
         print("Alpha组：")
-        for team in group_a:
+        for team in group_alpha:
             print(f"{team}: {alpha_pts[team]}")
         print("\nOmega组：")
-        for team in group_b:
+        for team in group_omega:
             print(f"{team}: {omega_pts[team]}")
 
     # 晋级队伍
-    qualify_a = get_qualified(group_a, alpha_pts, alpha_win_loss)
-    qualify_b = get_qualified(group_b, omega_pts, omega_win_loss)
+    qualify_a = get_qualified(group_alpha, alpha_pts, alpha_win_loss)
+    qualify_b = get_qualified(group_omega, omega_pts, omega_win_loss)
     if debug:
         print("\n晋级季后赛队伍：")
         print("Alpha组:", qualify_a)
@@ -403,27 +414,35 @@ def multi_sim(args):
     global debug
     debug = args.debug
     yaml_folder = args.yaml_folder
+    region = args.region
     num_threads = min(args.num_threads, args.num_simulations)
     random.seed(args.random_seed)
 
     if args.use_real_data:
         global real_results
-        real_results = load_real_results(args.source, args.results_file, args.yaml_folder)
+        real_results = load_real_results(args.source, args.results_file, args.yaml_folder, args.region)
 
     # 打印模拟参数
     print(f"模拟参数：")
+    print(f"  模拟赛区: {region}")
     print(f"  模拟次数: {args.num_simulations}")
     print(f"  使用随机种子: {args.random_seed}")
     print(f"  使用线程数: {num_threads}")
 
     start_time = time.time()
 
+    # 提前加载分组和初始积分
+    alpha, omega = load_group_teams(yaml_folder, region)
+    initial_pts = load_initial_pts(yaml_folder, region)
+
     # 模拟常规赛，计算晋级季后赛概率
-    alpha_probs, omega_probs = simulate_regular_seasons(args.num_simulations, yaml_folder, args.use_real_data, num_threads)
+    alpha_probs, omega_probs = simulate_regular_seasons(
+        args.num_simulations, alpha, omega, args.use_real_data, num_threads
+    )
 
     # 模拟常规赛+季后赛，计算晋级冠军赛概率
     champions_slots_probs, no_playoffs_but_slot_count, top2_in_slot_count = simulate_all_games(
-        args.num_simulations, yaml_folder, args.use_real_data, num_threads
+        args.num_simulations, alpha, omega, initial_pts, args.use_real_data, num_threads
     )
 
     end_time = time.time()
@@ -469,6 +488,7 @@ if __name__ == "__main__":
     parser.add_argument('--source', default='local', choices=['local', 'online'], help='数据加载源 (local/online)')
     parser.add_argument('--results_file', default='results.yaml', help='比赛结果文件路径')
     parser.add_argument('--yaml_folder', default='./yaml', help='YAML文件夹的位置')
+    parser.add_argument('--region', type=str, default='cn', help='模拟的VCT赛区（目前支持cn/pacific)')
     parser.add_argument('--multi', action='store_true', default=False, help='是否进行多次模拟实验，默认关闭')
     parser.add_argument('--num_simulations', type=int, default=500, help='模拟实验的次数，默认500')
     parser.add_argument('--debug', action='store_true', help='是否打印内容数据')
