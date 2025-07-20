@@ -5,12 +5,16 @@ regular_season:
   - ["WOL", "FPX", [0, 2]]
   - ["DRG", "NOVA", [2, 1]]
   - ["JDG", "TE", [1, 2]]
+  # WEEK2
   - ["TE", "TYL", [0, 2]]
   - ["FPX", "NOVA", [2, 1]]
   - ["WOL", "AG", [0, 2]]
   - ["BLG", "JDG", [2, 1]]
-  - ["TE", "EDG", null]
-  - ["TYL", "TEC", null]
+  - ["TYL", "TEC", [2, 0]]
+  - ["TE", "EDG", [2, 1]]
+  - ["DRG", "AG", null]
+  - ["XLG", "WOL", null]
+  # WEEK3
   - ["EDG", "BLG", null]
 
 playoffs: []

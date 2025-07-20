@@ -265,9 +265,10 @@ def simulate_single_run(yaml_folder, use_real_data):
     omega_qualified = get_qualified(omega, omega_pts, omega_win_loss)
 
     regular_pts = {**alpha_pts, **omega_pts}
-    champions_slots = play_playoffs(alpha_qualified, omega_qualified, initial_pts, regular_pts, use_real_data)['champions_slots']
+    playoff_results = play_playoffs(alpha_qualified, omega_qualified, initial_pts, regular_pts, use_real_data)
 
-    return champions_slots
+    # 返回冠军赛席位+季后赛晋级名单
+    return playoff_results['champions_slots'], alpha_qualified + omega_qualified
 
 def simulate_regular_seasons(num_simulations, yaml_folder, use_real_data, num_threads):
     alpha, omega = group_teams(yaml_folder)
@@ -295,18 +296,34 @@ def simulate_regular_seasons(num_simulations, yaml_folder, use_real_data, num_th
     return alpha_probabilities, omega_probabilities
 
 def simulate_all_games(num_simulations, yaml_folder, use_real_data, num_threads):
-    alpha, omega = group_teams(yaml_folder)
-    champions_slots_count = {team: 0 for team in alpha + omega}
+    all_teams = group_teams(yaml_folder)[0] + group_teams(yaml_folder)[1]  # 所有队伍
+    champions_slots_count = {team: 0 for team in all_teams}
+    no_playoffs_but_slot_count = {team: 0 for team in all_teams}  # 未晋级季后赛但获得席位的次数
+    top2_in_slot_count = {team: 0 for team in all_teams}  # 以冠亚身份获得席位的次数
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
-        results = list(tqdm.tqdm(executor.map(lambda _: simulate_single_run(yaml_folder, use_real_data), range(num_simulations)), total=num_simulations, desc="模拟常规赛+季后赛"))
+        results = list(tqdm.tqdm(
+            executor.map(lambda _: simulate_single_run(yaml_folder, use_real_data),
+            range(num_simulations)),
+            total=num_simulations,
+            desc="模拟常规赛+季后赛"
+        ))
 
-    for champions_slots in results:
+    for champions_slots, playoff_teams in results:
+        # 统计各队伍获得冠军赛席位的总次数
         for team in champions_slots:
             champions_slots_count[team] += 1
 
+            # 统计以冠亚身份(前两位)获得席位
+            if team in champions_slots[:2]:
+                top2_in_slot_count[team] += 1
+
+        # 统计未晋级季后赛但获得席位(三/四号种子)
+        for team in set(champions_slots) - set(playoff_teams):
+            no_playoffs_but_slot_count[team] += 1
+
     probabilities = {team: count / num_simulations for team, count in champions_slots_count.items()}
-    return probabilities
+    return probabilities, no_playoffs_but_slot_count, top2_in_slot_count
 
 def main(args):
     global debug
@@ -367,6 +384,21 @@ def main(args):
         for i, (team, score) in enumerate(final_ranking, 1):
             print(f"{i}. {team}: {score}分")
 
+def print_probabilities(title, probs, show_separator=True, threshold=5, reverse=True):
+    """
+    打印概率信息的函数
+    :param title: 打印的标题
+    :param probs: 概率字典
+    :param show_separator: 是否显示分割线，默认为True
+    :param threshold: 分割线的位置，默认为5
+    """
+    print(f"\n{title}:")
+    sorted_probs = sorted(probs.items(), key=lambda x: x[1], reverse=reverse)
+    for i, (team, prob) in enumerate(sorted_probs, start=1):
+        if show_separator and i == threshold:
+            print("------")
+        print(f"{team}: {prob * 100:.2f}%")
+
 def multi_sim(args):
     global debug
     debug = args.debug
@@ -389,36 +421,47 @@ def multi_sim(args):
     # 模拟常规赛，计算晋级季后赛概率
     alpha_probs, omega_probs = simulate_regular_seasons(args.num_simulations, yaml_folder, args.use_real_data, num_threads)
 
-    # 对 Alpha 组概率进行排序并打印
-    print("\nAlpha组晋级季后赛概率:")
-    sorted_alpha_probs = sorted(alpha_probs.items(), key=lambda x: x[1], reverse=True)
-    for i, (team, prob) in enumerate(sorted_alpha_probs, start=1):
-        if i == 5:
-            print("------")
-        print(f"{team}: {prob * 100:.2f}%")
-
-    # 对 Omega 组概率进行排序并打印
-    print("\nOmega组晋级季后赛概率:")
-    sorted_omega_probs = sorted(omega_probs.items(), key=lambda x: x[1], reverse=True)
-    for i, (team, prob) in enumerate(sorted_omega_probs, start=1):
-        if i == 5:
-            print("------")
-        print(f"{team}: {prob * 100:.2f}%")
-
-    # 模拟常规赛+季后赛，计算晋级世界赛概率
-    champions_slots_probs = simulate_all_games(args.num_simulations, yaml_folder, args.use_real_data, num_threads)
-    # 按照概率倒序排序
-    sorted_champions_slots_probs = sorted(champions_slots_probs.items(), key=lambda x: x[1], reverse=True)
-
-    print("\n晋级世界赛概率:")
-    for i, (team, prob) in enumerate(sorted_champions_slots_probs, start=1):
-        if i == 5:
-            print("------")
-        print(f"{team}: {prob * 100:.2f}%")
+    # 模拟常规赛+季后赛，计算晋级冠军赛概率
+    champions_slots_probs, no_playoffs_but_slot_count, top2_in_slot_count = simulate_all_games(
+        args.num_simulations, yaml_folder, args.use_real_data, num_threads
+    )
 
     end_time = time.time()
     simulation_time = end_time - start_time
     print(f"\n模拟总时间: {simulation_time:.2f} 秒")
+
+    all_teams = sorted([k for k, _ in champions_slots_probs.items()])
+
+    # 计算不晋级季后赛但可以晋级冠军赛概率
+    champions_slots_no_playoffs_probs = {
+        team: count / args.num_simulations
+        for team, count in no_playoffs_but_slot_count.items()
+    }
+
+    # 计算要晋级冠军赛必须前二概率
+    champions_slots_must_top2_probs = {
+        team: top2_in_slot_count[team] / (champions_slots_probs[team] * args.num_simulations)
+        if champions_slots_probs[team] > 0 else 0
+        for team in all_teams
+    }
+
+    # 打印各种概率
+    print_probabilities("Alpha组晋级季后赛概率", alpha_probs)
+    print_probabilities("Omega组晋级季后赛概率", omega_probs)
+    print_probabilities("晋级冠军赛概率", champions_slots_probs)
+    print_probabilities("不晋级季后赛但可以晋级冠军赛概率", champions_slots_no_playoffs_probs)
+    print_probabilities("当队伍获得冠军赛席位时，以冠/亚军身份（前二种子）获得的比例", champions_slots_must_top2_probs, reverse=False)
+
+    # 构建总结字典
+    summary_dict = {
+        'alpha_probs': alpha_probs,
+        'omega_probs': omega_probs,
+        'champions_slots_probs': champions_slots_probs,
+        'champions_slots_no_playoffs_probs': champions_slots_no_playoffs_probs,
+        'champions_slots_must_top2_probs': champions_slots_must_top2_probs,
+    }
+    return summary_dict
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='VCT 2025 China Stage 2 Simulation')
@@ -434,6 +477,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.multi:
-        multi_sim(args)
+        summary_dict = multi_sim(args)
     else:
         main(args)
