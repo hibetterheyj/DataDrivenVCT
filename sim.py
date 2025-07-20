@@ -11,6 +11,9 @@ import argparse
 import concurrent.futures
 import time
 from pathlib import Path
+import random
+from collections import defaultdict
+from math import comb
 
 import yaml
 import requests
@@ -71,26 +74,178 @@ def load_real_results(source="local", results_file="results.yaml", yaml_folder="
                 print(f"加载网络数据失败: {e}")
             return {'regular_season': [], 'playoffs': []}
 
-def play_regular_season(group, use_real_data=False):
+# 添加新的地图级别模拟函数
+def calculate_win_probability(bo: int, p: float) -> dict:
+    """
+    计算不同BO赛制下各比分的理论概率分布
+
+    参数:
+    bo: 比赛局数，3或5
+    p: 队伍A每局获胜的概率
+
+    返回:
+    字典，包含各比分的概率分布
+    """
+    if bo not in {3, 5}:
+        raise ValueError("bo参数必须是3或5")
+
+    required_wins = (bo + 1) // 2
+    results = {}
+
+    for total_games in range(required_wins, bo + 1):
+        losses = total_games - required_wins
+        if losses >= required_wins:
+            continue  # 不可能的比分
+
+        # A队获胜概率
+        comb_val = comb(total_games - 1, required_wins - 1)
+        prob_a = comb_val * (p ** required_wins) * ((1 - p) ** losses)
+        a_score = f"{required_wins}:{losses}"
+        results[a_score] = prob_a
+
+        # B队获胜概率
+        prob_b = comb_val * ((1 - p) ** required_wins) * (p ** losses)
+        b_score = f"{losses}:{required_wins}"
+        results[b_score] = prob_b
+
+    total = sum(results.values())
+    return {k: v/total for k, v in results.items()}
+
+def simulate_match(team1: str, team2: str, bo: int = 3, team1_win_rate: float = 0.5) -> tuple:
+    """
+    模拟一场BO3或BO5比赛，返回比分结果
+
+    参数:
+    team1: 队伍A的名称
+    team2: 队伍B的名称
+    bo: 比赛局数，3或5（默认3）
+    team1_win_rate: 队伍A每局获胜的概率（默认0.5）
+
+    返回:
+    (胜者, 比分) 元组，比分格式为(胜场, 负场)
+    """
+    if bo not in {3, 5}:
+        raise ValueError("bo参数必须是3或5")
+    if not (0 <= team1_win_rate <= 1):
+        raise ValueError("team1_win_rate必须在0到1之间")
+
+    required_wins = (bo + 1) // 2
+    theoretical_probs = calculate_win_probability(bo, team1_win_rate)
+
+    rand = random.random()
+    cumulative = 0
+    for score, prob in theoretical_probs.items():
+        cumulative += prob
+        if rand < cumulative:
+            wins1, wins2 = map(int, score.split(':'))
+            # 确定胜者
+            if wins1 > wins2:
+                return team1, (wins1, wins2)
+            else:
+                return team2, (wins2, wins1)
+
+    # 默认返回
+    wins = required_wins
+    losses = random.randint(0, required_wins-1)
+    winner = team1 if random.random() < team1_win_rate else team2
+    if winner == team1:
+        return winner, (wins, losses)
+    else:
+        return winner, (losses, wins)
+
+# 添加地图池加载函数
+def load_map_pool(yaml_folder, region='cn'):
+    """加载地图池配置，返回地图名称列表（兼容旧格式）"""
+    file_path = Path(yaml_folder) / 'map_pool.yaml'  # 注意：移除了region子目录
+
+    try:
+        data = load_yaml(file_path)
+
+        # 处理新格式：包含属性的字典列表
+        if data and isinstance(data, list) and isinstance(data[0], dict):
+            return [item["name"] for item in data]
+        # 处理旧格式：纯字符串列表
+        elif data and isinstance(data, list) and isinstance(data[0], str):
+            return data
+        else:
+            raise ValueError("Invalid map pool format")
+
+    except (FileNotFoundError, ValueError):
+        # 默认地图池
+        return [
+            "Ascent",
+            "Bind",
+            "Corrode",
+            "Haven",
+            "Icebox",
+            "Lotus",
+            "Sunset"
+        ]
+
+# 修改常规赛函数以支持地图级别模拟
+def play_regular_season(group, use_real_data=False, map_based=False, map_pool=None):
     """进行常规赛：每组内每支队伍与同组其他队伍各打一场比赛"""
     pts = {team: 0 for team in group}
-    win_loss = {team: [0, 0] for team in group}  # 初始化胜负记录
-    played_matches = set()  # 用于记录已经进行的比赛
+    win_loss = {team: [0, 0] for team in group}  # 胜场-负场
+    map_diff = {team: 0 for team in group}  # 地图净胜分
+    head_to_head = {team: {} for team in group}  # 相互胜负关系
+    match_records = []  # 存储所有比赛记录
+
+    # 新数据结构用于详细记录
+    team_stats = {
+        team: {
+            'wins': 0,
+            'losses': 0,
+            'maps_won': 0,
+            'maps_lost': 0
+        } for team in group
+    }
+
+    played_matches = set()
 
     if use_real_data and real_results['regular_season']:
         if debug:
             print("\n使用真实常规赛数据")
-        for team1, team2, result in real_results['regular_season']:
+        for match in real_results['regular_season']:
+            team1, team2, result = match
             if team1 in group and team2 in group and result is not None:
-                # 标记这场比赛已经进行
                 played_matches.add(tuple(sorted([team1, team2])))
-                winner = team1 if result[0] > result[1] else team2
-                loser = team2 if result[0] > result[1] else team1
+
+                # 处理真实数据格式
+                if isinstance(result, list) and len(result) > 0 and isinstance(result[0], (list, tuple)):
+                    # 地图比分格式：[[13,11], [8,13], [13,10]]
+                    team1_maps = sum(1 for r in result if r[0] > r[1])
+                    team2_maps = sum(1 for r in result if r[1] > r[0])
+                else:
+                    # 传统比分格式：[2, 0] 或 (2, 1)
+                    team1_maps, team2_maps = result
+
+                winner = team1 if team1_maps > team2_maps else team2
                 pts[winner] += 1
-                win_loss[winner][0] += 1  # 胜者胜场加1
-                win_loss[loser][1] += 1   # 败者负场加1
+                win_loss[winner][0] += 1
+                win_loss[team2 if winner == team1 else team1][1] += 1
+
+                # 更新详细统计数据
+                team_stats[team1]['maps_won'] += team1_maps
+                team_stats[team1]['maps_lost'] += team2_maps
+                team_stats[team2]['maps_won'] += team2_maps
+                team_stats[team2]['maps_lost'] += team1_maps
+
+                if winner == team1:
+                    team_stats[team1]['wins'] += 1
+                    team_stats[team2]['losses'] += 1
+                    head_to_head[team1][team2] = 1
+                    head_to_head[team2][team1] = 0
+                else:
+                    team_stats[team2]['wins'] += 1
+                    team_stats[team1]['losses'] += 1
+                    head_to_head[team2][team1] = 1
+                    head_to_head[team1][team2] = 0
+
                 if debug:
-                    print(f"{team1} vs {team2} -> 比分: {result} 胜者: {winner}")
+                    print(f"{team1} vs {team2} -> 比分: {team1_maps}:{team2_maps} 胜者: {winner}")
+
+                match_records.append((team1, team2, winner, (team1_maps, team2_maps)))
 
     # 模拟比赛逻辑
     if debug:
@@ -99,28 +254,124 @@ def play_regular_season(group, use_real_data=False):
         for team2 in group[i + 1:]:
             match = tuple(sorted([team1, team2]))
             if match not in played_matches:
-                winner = team1 if random.choice([True, False]) else team2
+                if map_based:
+                    # 地图级别模拟
+                    winner, (team1_maps, team2_maps) = simulate_match(
+                        team1, team2, bo=3, team1_win_rate=0.5
+                    )
+                else:
+                    # 传统模拟
+                    winner = team1 if random.choice([True, False]) else team2
+                    # 生成合理的地图比分
+                    if winner == team1:
+                        team1_maps = 2
+                        team2_maps = random.choice([0, 1])
+                    else:
+                        team2_maps = 2
+                        team1_maps = random.choice([0, 1])
+
                 loser = team2 if winner == team1 else team1
                 pts[winner] += 1
-                win_loss[winner][0] += 1  # 胜者胜场加1
-                win_loss[loser][1] += 1  # 败者负场加1
+                win_loss[winner][0] += 1
+                win_loss[loser][1] += 1
+
+                # 更新详细统计数据
+                team_stats[team1]['maps_won'] += team1_maps
+                team_stats[team1]['maps_lost'] += team2_maps
+                team_stats[team2]['maps_won'] += team2_maps
+                team_stats[team2]['maps_lost'] += team1_maps
+
+                if winner == team1:
+                    team_stats[team1]['wins'] += 1
+                    team_stats[team2]['losses'] += 1
+                    head_to_head[team1][team2] = 1
+                    head_to_head[team2][team1] = 0
+                else:
+                    team_stats[team2]['wins'] += 1
+                    team_stats[team1]['losses'] += 1
+                    head_to_head[team2][team1] = 1
+                    head_to_head[team1][team2] = 0
+
                 if debug:
-                    print(f"{team1} vs {team2} -> 胜者: {winner}")
+                    print(f"{team1} vs {team2} -> 比分: {team1_maps}:{team2_maps} 胜者: {winner}")
+
+                match_records.append((team1, team2, winner, (team1_maps, team2_maps)))
                 played_matches.add(match)
 
-    win_loss_dict = {team: f"{wins}胜-{losses}负" for team, (wins, losses) in win_loss.items()}
-    return pts, win_loss_dict
+    # 计算地图净胜分
+    for team in group:
+        map_diff[team] = team_stats[team]['maps_won'] - team_stats[team]['maps_lost']
 
-# todo: 有详细的小组排名规则待拓展
-def get_qualified(group, pts, win_loss_dict, num_qualify=4):
-    """从小组中选出积分前4的队伍晋级季后赛"""
-    sorted_group = sorted(group, key=lambda x: pts[x], reverse=True)
+    win_loss_dict = {team: f"{win_loss[team][0]}胜-{win_loss[team][1]}负" for team in group}
+    map_diff_dict = {team: f"+{map_diff[team]}" if map_diff[team] > 0 else str(map_diff[team]) for team in group}
+
+    return pts, win_loss_dict, map_diff_dict, team_stats, head_to_head, match_records
+
+# 实现复杂的排名比较函数
+def compare_teams(team1, team2, team_stats, head_to_head):
+    """比较两支队伍的排名优先级"""
+    # 1. 大场胜率
+    if team_stats[team1]['wins'] != team_stats[team2]['wins']:
+        return team_stats[team1]['wins'] > team_stats[team2]['wins']
+
+    # 2. 地图净胜分
+    diff1 = team_stats[team1]['maps_won'] - team_stats[team1]['maps_lost']
+    diff2 = team_stats[team2]['maps_won'] - team_stats[team2]['maps_lost']
+    if diff1 != diff2:
+        return diff1 > diff2
+
+    # 3. 相互胜负关系
+    if team2 in head_to_head[team1]:
+        return head_to_head[team1][team2] > head_to_head[team2][team1]
+
+    # 4. 总赢图数
+    return team_stats[team1]['maps_won'] > team_stats[team2]['maps_won']
+
+# todo: 修改晋级函数以支持复杂排名规则，需要进一步检查修正
+def get_qualified(group, pts, win_loss_dict, map_diff_dict, team_stats, head_to_head, num_qualify=4):
+    """从小组中选出积分前4的队伍晋级季后赛（支持复杂排名规则）"""
+    # 创建同分队伍组
+    groups = defaultdict(list)
+    for team in group:
+        key = (
+            team_stats[team]['wins'],
+            team_stats[team]['maps_won'] - team_stats[team]['maps_lost'],
+            team_stats[team]['maps_won']
+        )
+        groups[key].append(team)
+
+    # 对每个同分组内按相互胜负排序
+    sorted_groups = []
+    for key, teams in sorted(groups.items(), key=lambda x: x[0], reverse=True):
+        if len(teams) > 1:
+            # 多队同分时，计算相互胜负净胜分
+            h2h_stats = {}
+            for team in teams:
+                wins = 0
+                for opp in teams:
+                    if team != opp and opp in head_to_head[team]:
+                        wins += head_to_head[team][opp]
+                h2h_stats[team] = wins
+
+            # 按相互胜场数排序
+            teams.sort(key=lambda x: (-h2h_stats[x], -team_stats[x]['maps_won']))
+        sorted_groups.extend(teams)
+
     if debug:
-        formatted_group = [f"{team}({win_loss_dict[team]})" for team in sorted_group]
-        print(f"\n{group} 小组排名: {formatted_group}")
-    return sorted_group[:num_qualify]
+        formatted_group = [f"{team}({win_loss_dict[team]}, {map_diff_dict[team]})" for team in sorted_groups]
+        print(f"\n{group} 小组最终排名: {formatted_group}")
 
-def play_playoffs(qualified_teams_a, qualified_teams_b, initial_pts, regular_pts, use_real_data=False):
+    return sorted_groups[:num_qualify]
+
+def play_playoffs(
+        qualified_teams_a,
+        qualified_teams_b,
+        initial_pts,
+        regular_pts,
+        use_real_data=False,
+        map_based=False,
+        map_pool=None
+        ):
     """季后赛：M1-M12编号 + 从左到右布局 + 双败淘汰可视化"""
     if debug:
         print("\n=== 季后赛（M1-M12轮次，从左到右布局）===")
@@ -149,20 +400,73 @@ def play_playoffs(qualified_teams_a, qualified_teams_b, initial_pts, regular_pts
 
     # 存储各轮次结果（M1-M12）
     rounds = {}
-    def play_round(round_name, team1, team2):
-        rounds[round_name] = {'teams': [team1, team2], 'winner': None, 'loser': None}
+    def play_round(round_name, team1, team2, bo=3):
+        rounds[round_name] = {'teams': [team1, team2], 'winner': None, 'loser': None, 'score': None}
+
+        # 确定BO类型
+        is_bo5 = round_name in ['M11', 'M12']  # 败者组决赛和总决赛是BO5
+        current_bo = 5 if is_bo5 else bo
+
         if use_real_data and real_results['playoffs']:
             result = next((r for r in real_results['playoffs'] if
                           (r[0] == team1 and r[1] == team2) or
                           (r[0] == team2 and r[1] == team1)), None)
-            winner = result[2] if result else (team1 if random.choice([True, False]) else team2)
+            if result:
+                winner = result[2]
+                # 处理真实比分
+                if len(result) > 3:
+                    score_data = result[3]
+                    # 判断是否为地图比分格式（列表中的元素也是列表或元组）
+                    if isinstance(score_data, list) and len(score_data) > 0 and isinstance(score_data[0], (list, tuple)):
+                        # 地图比分格式：[[13,11], [8,13], [13,10]]
+                        team1_maps = sum(1 for r in score_data if r[0] > r[1])
+                        team2_maps = sum(1 for r in score_data if r[1] > r[0])
+                        score = (team1_maps, team2_maps)
+                    else:
+                        # 传统比分格式：(2, 0) 或 [2, 1]
+                        score = tuple(score_data)  # 确保是元组
+                else:
+                    # 如果没有提供比分，则生成合理的地图比分
+                    if winner == team1:
+                        score = (2, random.choice([0, 1])) if current_bo == 3 else (3, random.choice([0, 1, 2]))
+                    else:
+                        score = (random.choice([0, 1]), 2) if current_bo == 3 else (random.choice([0, 1, 2]), 3)
+                rounds[round_name]['score'] = score
+            else:
+                # 没有真实数据时随机模拟
+                if map_based:
+                    winner, score = simulate_match(team1, team2, bo=current_bo, team1_win_rate=0.5)
+                    rounds[round_name]['score'] = score
+                else:
+                    winner = team1 if random.choice([True, False]) else team2
+                    # 生成合理的地图比分
+                    if winner == team1:
+                        score = (2, random.choice([0, 1])) if current_bo == 3 else (3, random.choice([0, 1, 2]))
+                    else:
+                        score = (random.choice([0, 1]), 2) if current_bo == 3 else (random.choice([0, 1, 2]), 3)
+                    rounds[round_name]['score'] = score
         else:
-            winner = team1 if random.choice([True, False]) else team2
+            # 没有真实数据时模拟
+            if map_based:
+                winner, score = simulate_match(team1, team2, bo=current_bo, team1_win_rate=0.5)
+                rounds[round_name]['score'] = score
+            else:
+                winner = team1 if random.choice([True, False]) else team2
+                # 生成合理的地图比分
+                if winner == team1:
+                    score = (2, random.choice([0, 1])) if current_bo == 3 else (3, random.choice([0, 1, 2]))
+                else:
+                    score = (random.choice([0, 1]), 2) if current_bo == 3 else (random.choice([0, 1, 2]), 3)
+                rounds[round_name]['score'] = score
+
         loser = team1 if winner == team2 else team2
         rounds[round_name]['winner'] = winner
         rounds[round_name]['loser'] = loser
+
         if debug:
-            print(f"{team1} vs {team2} -> 胜者: {winner}, 败者: {loser}")
+            score_str = f"{score[0]}:{score[1]}" if score else ""
+            print(f"{round_name}: {team1} vs {team2} -> {winner} 胜 {score_str}")
+
         return winner, loser
 
     # 各轮比赛
@@ -176,8 +480,8 @@ def play_playoffs(qualified_teams_a, qualified_teams_b, initial_pts, regular_pts
     m8_winner, m8_loser = play_round('M8', m4_winner, m5_loser)
     m9_winner, m9_loser = play_round('M9', m5_winner, m6_winner)
     m10_winner, m10_loser = play_round('M10', m7_winner, m8_winner)
-    m11_winner, m11_loser = play_round('M11', m9_loser, m10_winner)
-    champion, runner_up = play_round('M12', m9_winner, m11_winner)
+    m11_winner, m11_loser = play_round('M11', m9_loser, m10_winner, bo=5)  # BO5
+    champion, runner_up = play_round('M12', m9_winner, m11_winner, bo=5)  # BO5
 
     # 排名逻辑
     third_place = m11_loser  # M11败者
@@ -226,18 +530,6 @@ def play_playoffs(qualified_teams_a, qualified_teams_b, initial_pts, regular_pts
     for u, v in winner_edges:
         dot.edge(u, v, color="red", penwidth="2")  # 胜者线：红色粗实线
 
-    # 败者线（灰色虚线，默认隐藏，如需显示取消注释）
-    # loser_edges = [
-    #     ('M1', 'M3'),   # M1败者 → M3
-    #     ('M2', 'M4'),   # M2败者 → M4
-    #     ('M5', 'M8'),   # M5败者 → M8
-    #     ('M6', 'M7'),   # M6败者 → M7
-    #     ('M9', 'M11'),  # M9败者 → M11
-    #     ('M10', 'M11'), # M10败者 → M11（殿军，无需连线）
-    # ]
-    # for u, v in loser_edges:
-    #     dot.edge(u, v, color="gray", style="dashed", penwidth="1")  # 败者线：灰色虚线
-
     # 更新积分
     updated_pts = {team: initial_pts.get(team, 0) + regular_pts.get(team, 0) for team in set(initial_pts) | set(regular_pts)}
     updated_pts[third_place] += 4
@@ -268,29 +560,66 @@ def play_playoffs(qualified_teams_a, qualified_teams_b, initial_pts, regular_pts
         'champions_slots': [champion, runner_up, third_seed, fourth_seed]
     }
 
-def simulate_single_run(alpha, omega, initial_pts, use_real_data):
-    """单次模拟运行，使用预加载的分组和积分数据"""
-    alpha_pts, alpha_win_loss = play_regular_season(alpha, use_real_data)
-    omega_pts, omega_win_loss = play_regular_season(omega, use_real_data)
+def simulate_single_run(alpha, omega, initial_pts, use_real_data, map_based, map_pool):
+    """单次模拟运行，支持地图级别模拟"""
+    # 常规赛
+    alpha_pts, alpha_win_loss, alpha_map_diff, alpha_team_stats, alpha_head_to_head, _ = play_regular_season(
+        alpha, use_real_data, map_based, map_pool
+    )
+    omega_pts, omega_win_loss, omega_map_diff, omega_team_stats, omega_head_to_head, _ = play_regular_season(
+        omega, use_real_data, map_based, map_pool
+    )
 
-    alpha_qualified = get_qualified(alpha, alpha_pts, alpha_win_loss)
-    omega_qualified = get_qualified(omega, omega_pts, omega_win_loss)
+    # 合并数据
+    team_stats = {**alpha_team_stats, **omega_team_stats}
+    head_to_head = {**alpha_head_to_head, **omega_head_to_head}
+    map_diff_dict = {**alpha_map_diff, **omega_map_diff}
 
+    # 晋级队伍
+    alpha_qualified = get_qualified(
+        alpha, alpha_pts, alpha_win_loss, alpha_map_diff,
+        alpha_team_stats, alpha_head_to_head
+    )
+    omega_qualified = get_qualified(
+        omega, omega_pts, omega_win_loss, omega_map_diff,
+        omega_team_stats, omega_head_to_head
+    )
+
+    # 季后赛（含可视化）
     regular_pts = {**alpha_pts, **omega_pts}
-    playoff_results = play_playoffs(alpha_qualified, omega_qualified, initial_pts, regular_pts, use_real_data)
+    playoff_results = play_playoffs(
+        alpha_qualified, omega_qualified, initial_pts, regular_pts,
+        use_real_data, map_based, map_pool
+    )
 
     return playoff_results['champions_slots'], alpha_qualified + omega_qualified
 
-def simulate_regular_seasons(num_simulations, alpha, omega, use_real_data, num_threads):
+def simulate_regular_seasons(num_simulations, alpha, omega, use_real_data, num_threads, map_based, map_pool):
     alpha_qualify_count = {team: 0 for team in alpha}
     omega_qualify_count = {team: 0 for team in omega}
 
     def single_simulation():
-        alpha_pts, alpha_win_loss = play_regular_season(alpha, use_real_data)
-        omega_pts, omega_win_loss = play_regular_season(omega, use_real_data)
+        alpha_pts, alpha_win_loss, alpha_map_diff, alpha_team_stats, alpha_head_to_head, _ = play_regular_season(
+            alpha, use_real_data, map_based, map_pool
+        )
+        omega_pts, omega_win_loss, omega_map_diff, omega_team_stats, omega_head_to_head, _ = play_regular_season(
+            omega, use_real_data, map_based, map_pool
+        )
 
-        alpha_qualified = get_qualified(alpha, alpha_pts, alpha_win_loss)
-        omega_qualified = get_qualified(omega, omega_pts, omega_win_loss)
+        # 合并数据
+        team_stats = {**alpha_team_stats, **omega_team_stats}
+        head_to_head = {**alpha_head_to_head, **omega_head_to_head}
+        map_diff_dict = {**alpha_map_diff, **omega_map_diff}
+
+        # 晋级队伍 - 修改调用参数
+        alpha_qualified = get_qualified(
+            alpha, alpha_pts, alpha_win_loss, alpha_map_diff,
+            alpha_team_stats, alpha_head_to_head
+        )
+        omega_qualified = get_qualified(
+            omega, omega_pts, omega_win_loss, omega_map_diff,
+            omega_team_stats, omega_head_to_head
+        )
 
         for team in alpha_qualified:
             alpha_qualify_count[team] += 1
@@ -305,7 +634,7 @@ def simulate_regular_seasons(num_simulations, alpha, omega, use_real_data, num_t
 
     return alpha_probabilities, omega_probabilities
 
-def simulate_all_games(num_simulations, alpha, omega, initial_pts, use_real_data, num_threads):
+def simulate_all_games(num_simulations, alpha, omega, initial_pts, use_real_data, num_threads, map_based, map_pool):
     """模拟所有比赛，使用预加载的分组和积分数据"""
     all_teams = alpha + omega
     champions_slots_count = {team: 0 for team in all_teams}
@@ -314,7 +643,7 @@ def simulate_all_games(num_simulations, alpha, omega, initial_pts, use_real_data
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
         results = list(tqdm.tqdm(
-            executor.map(lambda _: simulate_single_run(alpha, omega, initial_pts, use_real_data),
+            executor.map(lambda _: simulate_single_run(alpha, omega, initial_pts, use_real_data, map_based, map_pool),
             range(num_simulations)),
             total=num_simulations,
             desc="模拟常规赛+季后赛"
@@ -343,6 +672,9 @@ def main(args):
     region = args.region
     random_seed = args.random_seed
     random.seed(random_seed)
+
+    # 加载地图池 (只保留一处加载)
+    map_pool = load_map_pool(args.yaml_folder)
 
     use_real_data = args.use_real_data
     if use_real_data:
@@ -376,9 +708,27 @@ def main(args):
         print(f"Omega组：{group_omega}")
 
     # 常规赛
-    alpha_pts, alpha_win_loss = play_regular_season(group_alpha, args.use_real_data)
-    omega_pts, omega_win_loss = play_regular_season(group_omega, args.use_real_data)
-    regular_pts = {**alpha_pts, **omega_pts}
+    alpha_pts, alpha_win_loss, alpha_map_diff, alpha_team_stats, alpha_head_to_head, alpha_matches = play_regular_season(
+        group_alpha, args.use_real_data, args.map_based, map_pool
+    )
+    omega_pts, omega_win_loss, omega_map_diff, omega_team_stats, omega_head_to_head, omega_matches = play_regular_season(
+        group_omega, args.use_real_data, args.map_based, map_pool
+    )
+
+    # 合并统计数据
+    team_stats = {**alpha_team_stats, **omega_team_stats}
+    head_to_head = {**alpha_head_to_head, **omega_head_to_head}
+    map_diff_dict = {**alpha_map_diff, **omega_map_diff}
+
+    # 晋级队伍
+    qualify_a = get_qualified(
+        group_alpha, alpha_pts, alpha_win_loss, alpha_map_diff,
+        alpha_team_stats, alpha_head_to_head
+    )
+    qualify_b = get_qualified(
+        group_omega, omega_pts, omega_win_loss, omega_map_diff,
+        omega_team_stats, omega_head_to_head
+    )
 
     # 常规赛积分分组显示
     if debug:
@@ -390,16 +740,16 @@ def main(args):
         for team in group_omega:
             print(f"{team}: {omega_pts[team]}")
 
-    # 晋级队伍
-    qualify_a = get_qualified(group_alpha, alpha_pts, alpha_win_loss)
-    qualify_b = get_qualified(group_omega, omega_pts, omega_win_loss)
-    if debug:
         print("\n晋级季后赛队伍：")
         print("Alpha组:", qualify_a)
         print("Omega组:", qualify_b)
 
     # 季后赛（含可视化）
-    playoff_results = play_playoffs(qualify_a, qualify_b, initial_pts, regular_pts, args.use_real_data)
+    regular_pts = {**alpha_pts, **omega_pts}
+    playoff_results = play_playoffs(
+        qualify_a, qualify_b, initial_pts, regular_pts,
+        args.use_real_data, args.map_based, map_pool
+    )
 
     # 渲染PNG并打开
     playoff_results['dot_graph'].render(
@@ -440,6 +790,9 @@ def multi_sim(args):
     random_seed = args.random_seed
     random.seed(random_seed)
 
+    # 加载地图池
+    map_pool = load_map_pool(args.yaml_folder)
+
     use_real_data = args.use_real_data
     if use_real_data:
         global real_results
@@ -467,12 +820,14 @@ def multi_sim(args):
 
     # 模拟常规赛，计算晋级季后赛概率
     alpha_probs, omega_probs = simulate_regular_seasons(
-        args.num_simulations, alpha, omega, args.use_real_data, num_threads
+        args.num_simulations, alpha, omega, args.use_real_data,
+        num_threads, args.map_based, map_pool
     )
 
     # 模拟常规赛+季后赛，计算晋级冠军赛概率
     champions_slots_probs, no_playoffs_but_slot_count, top2_in_slot_count = simulate_all_games(
-        args.num_simulations, alpha, omega, initial_pts, args.use_real_data, num_threads
+        args.num_simulations, alpha, omega, initial_pts, args.use_real_data,
+        num_threads, args.map_based, map_pool
     )
 
     end_time = time.time()
@@ -513,12 +868,13 @@ def multi_sim(args):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='VCT 2025 China Stage 2 Simulation')
+    parser = argparse.ArgumentParser(description='VCT 2025 Stage 2 Simulation')
     parser.add_argument('--use_real_data', action='store_false', help='是否使用真实比赛数据')
     parser.add_argument('--source', default='local', choices=['local', 'online'], help='数据加载源 (local/online)')
     parser.add_argument('--results_file', default='results.yaml', help='比赛结果文件路径')
     parser.add_argument('--yaml_folder', default='./yaml', help='YAML文件夹的位置')
     parser.add_argument('--region', type=str, default='cn', help='模拟的VCT赛区（目前支持cn/pacific)')
+    parser.add_argument('--map_based', action='store_true', help='启用地图级别模拟')
     parser.add_argument('--multi', action='store_true', default=False, help='是否进行多次模拟实验，默认关闭')
     parser.add_argument('--num_simulations', type=int, default=500, help='模拟实验的次数，默认500')
     parser.add_argument('--debug', action='store_true', help='是否打印内容数据')

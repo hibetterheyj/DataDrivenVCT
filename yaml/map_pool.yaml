@@ -1,0 +1,48 @@
+# https://valorant.fandom.com/wiki/Maps#History
+- name: Abyss
+  name_zh: 幽邃地窟
+  active: false
+
+- name: Ascent
+  name_zh: 亚海悬城
+  active: true
+
+- name: Bind
+  name_zh: 源工重镇
+  active: true
+
+- name: Breeze
+  name_zh: 微风岛屿
+  active: false
+
+- name: Corrode
+  name_zh: 盐海矿镇
+  active: true
+
+- name: Fracture
+  name_zh: 裂变峡谷
+  active: false
+
+- name: Haven
+  name_zh: 隐世修所
+  active: true
+
+- name: Icebox
+  name_zh: 森寒冬港
+  active: true
+
+- name: Lotus
+  name_zh: 莲华古城
+  active: true
+
+- name: Pearl
+  name_zh: 深海遗珠
+  active: false
+
+- name: Split
+  name_zh: 霓虹町
+  active: false
+
+- name: Sunset
+  name_zh: 日落之城
+  active: true
