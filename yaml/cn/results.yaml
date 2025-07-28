@@ -1,5 +1,6 @@
 # https://www.vlr.gg/event/matches/2499/vct-2025-china-stage-2/
 regular_season:
+  # WEEK1
   - ["EDG", "TEC", [2, 0]]
   - ["BLG", "TYL", [2, 0]]
   - ["AG", "XLG", [1, 2]]
@@ -16,6 +17,22 @@ regular_season:
   - ["DRG", "AG", [2, 1]]
   - ["XLG", "WOL", [2, 0]]
   # WEEK3
+  - ["TEC", "BLG", [0, 2]]
+  - ["FPX", "DRG", [2, 1]]
+  - ["NOVA", "AG", [1, 2]]
+  - ["TYL", "EDG", [0, 2]]
+  - ["TEC", "JDG", [1, 2]]
+  - ["BLG", "TE", [1, 2]]
+  - ["WOL", "DRG", [2, 1]]
+  - ["XLG", "FPX", [2, 0]]
+  # WEEK4
+  - ["NOVA", "XLG", null]
+  - ["EDG", "JDG", null]
+  - ["AG", "FPX", null]
+  - ["TE", "TEC", null]
+  - ["NOVA", "WOL", null]
+  - ["DRG", "XLG", null]
+  - ["TYL", "JDG", null]
   - ["EDG", "BLG", null]
 
 playoffs: []
