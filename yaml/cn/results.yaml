@@ -26,8 +26,8 @@ regular_season:
   - ["WOL", "DRG", [2, 1]]
   - ["XLG", "FPX", [2, 0]]
   # WEEK4
-  - ["NOVA", "XLG", null]
-  - ["EDG", "JDG", null]
+  - ["NOVA", "XLG", [0, 2]]
+  - ["EDG", "JDG", [2, 1]]
   - ["AG", "FPX", null]
   - ["TE", "TEC", null]
   - ["NOVA", "WOL", null]

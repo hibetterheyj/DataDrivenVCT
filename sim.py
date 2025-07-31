@@ -12,35 +12,82 @@ import time
 from pathlib import Path
 from collections import defaultdict
 from math import comb
+from typing import List, Dict, Tuple, Optional, Any, Set, Union, Callable
 import yaml
 import requests
 import graphviz
 import tqdm
 
 # 全局 debug 变量
-debug = False
+debug: bool = False
 
-def load_yaml(file_path):
-    """加载YAML文件"""
+def load_yaml(file_path: str) -> Any:
+    """
+    加载YAML文件
+
+    参数:
+        file_path: YAML文件路径
+
+    返回:
+        YAML文件解析后的内容（通常为字典或列表）
+    """
     with open(file_path, 'r', encoding='utf-8') as f:
         return yaml.safe_load(f)
 
-def load_group_teams(yaml_folder, region='cn'):
-    """返回预设的两个小组"""
+def load_group_teams(yaml_folder: str, region: str = 'cn') -> Tuple[List[str], List[str]]:
+    """
+    返回预设的两个小组
+
+    参数:
+        yaml_folder: YAML文件所在文件夹
+        region: 赛区名称，默认'cn'
+
+    返回:
+        包含两个小组队伍列表的元组 (Alpha组, Omega组)
+    """
     file_path = Path(yaml_folder) / region / 'groups.yaml'
-    groups = load_yaml(file_path)
+    groups = load_yaml(str(file_path))
     if debug:
         print(f"加载分组文件: {file_path}")
         print(groups)
     return groups['Alpha'], groups['Omega']
 
-def load_initial_pts(yaml_folder, region='cn'):
-    """加载初始积分"""
-    file_path = Path(yaml_folder) / region / 'initial_pts.yaml'
-    return load_yaml(file_path)
+def load_initial_pts(yaml_folder: str, region: str = 'cn') -> Dict[str, int]:
+    """
+    加载初始积分
 
-def load_real_results(source="local", results_file="results.yaml", yaml_folder="./yaml", region='cn'):
-    """从本地文件或网络API加载真实比赛结果"""
+    参数:
+        yaml_folder: YAML文件所在文件夹
+        region: 赛区名称，默认'cn'
+
+    返回:
+        包含各队初始积分的字典 {队伍名: 积分}
+    """
+    file_path = Path(yaml_folder) / region / 'initial_pts.yaml'
+    return load_yaml(str(file_path))
+
+def load_real_results(
+    source: str = "local",
+    results_file: str = "results.yaml",
+    yaml_folder: str = "./yaml",
+    region: str = 'cn'
+) -> Dict[str, List[Any]]:
+    """
+    从本地文件或网络API加载真实比赛结果
+
+    参数:
+        source: 数据来源，'local'或'online'
+        results_file: 本地结果文件名
+        yaml_folder: YAML文件所在文件夹
+        region: 赛区名称
+
+    返回:
+        包含常规赛和季后赛结果的字典，格式为:
+        {
+            'regular_season': [...],  # 常规赛结果
+            'playoffs': [...]        # 季后赛结果
+        }
+    """
     if source == "local":
         try:
             data = load_yaml(os.path.join(yaml_folder, region, results_file))
@@ -67,19 +114,21 @@ def load_real_results(source="local", results_file="results.yaml", yaml_folder="
                 print(f"加载网络数据失败: {e}")
             return {'regular_season': [], 'playoffs': []}
 
-def get_bo_score_probs(bo: int, p: float) -> dict:
+def get_bo_score_probs(bo: int, p: float) -> Dict[str, float]:
     """
     计算不同BO赛制下各比分的理论概率分布
+
     参数:
-    bo: 比赛局数，3或5
-    p: 队伍A每局获胜的概率
+        bo: 比赛局数，3或5
+        p: 队伍A每局获胜的概率
+
     返回:
-    字典，包含各比分的概率分布
+        字典，包含各比分的概率分布，键为比分字符串如"2:0"，值为概率
     """
     if bo not in {3, 5}:
         raise ValueError("bo参数必须是3或5")
     required_wins = (bo + 1) // 2
-    results = {}
+    results: Dict[str, float] = {}
     for total_games in range(required_wins, bo + 1):
         losses = total_games - required_wins
         if losses >= required_wins:
@@ -94,16 +143,23 @@ def get_bo_score_probs(bo: int, p: float) -> dict:
     total = sum(results.values())
     return {k: v/total for k, v in results.items()}
 
-def simulate_match(team1: str, team2: str, bo: int = 3, team1_win_rate: float = 0.5) -> tuple:
+def simulate_match(
+    team1: str,
+    team2: str,
+    bo: int = 3,
+    team1_win_rate: float = 0.5
+) -> Tuple[str, Tuple[int, int]]:
     """
     模拟一场BO3或BO5比赛，返回比分结果
+
     参数:
-    team1: 队伍A的名称
-    team2: 队伍B的名称
-    bo: 比赛局数，3或5（默认3）
-    team1_win_rate: 队伍A每局获胜的概率（默认0.5）
+        team1: 队伍A的名称
+        team2: 队伍B的名称
+        bo: 比赛局数，3或5（默认3）
+        team1_win_rate: 队伍A每局获胜的概率（默认0.5）
+
     返回:
-    (胜者, 比分) 元组，比分格式为(胜场, 负场)
+        元组 (胜者, 比分)，比分格式为(胜场, 负场)
     """
     if bo not in {3, 5}:
         raise ValueError("bo参数必须是3或5")
@@ -111,7 +167,7 @@ def simulate_match(team1: str, team2: str, bo: int = 3, team1_win_rate: float = 
         raise ValueError("team1_win_rate必须在0到1之间")
     theoretical_probs = get_bo_score_probs(bo, team1_win_rate)
     rand = random.random()
-    cumulative = 0
+    cumulative = 0.0
     for score, prob in theoretical_probs.items():
         cumulative += prob
         if rand < cumulative:
@@ -127,11 +183,20 @@ def simulate_match(team1: str, team2: str, bo: int = 3, team1_win_rate: float = 
     else:
         return winner, (losses, required_wins)
 
-def load_map_pool(yaml_folder, region='cn'):
-    """加载地图池配置，返回地图名称列表（兼容旧格式）"""
+def load_map_pool(yaml_folder: str, region: str = 'cn') -> List[str]:
+    """
+    加载地图池配置，返回地图名称列表（兼容旧格式）
+
+    参数:
+        yaml_folder: YAML文件所在文件夹
+        region: 赛区名称，默认'cn'
+
+    返回:
+        地图名称列表
+    """
     file_path = Path(yaml_folder) / 'map_pool.yaml' # 注意：移除了region子目录
     try:
-        data = load_yaml(file_path)
+        data = load_yaml(str(file_path))
         if data and isinstance(data, list) and isinstance(data[0], dict):
             return [item["name"] for item in data]
         elif data and isinstance(data, list) and isinstance(data[0], str):
@@ -149,8 +214,16 @@ def load_map_pool(yaml_folder, region='cn'):
             "Sunset"
         ]
 
-def _parse_score_from_result(result_data):
-    """从真实数据的结果部分解析出地图比分"""
+def _parse_score_from_result(result_data: Any) -> Tuple[int, int]:
+    """
+    从真实数据的结果部分解析出地图比分
+
+    参数:
+        result_data: 比赛结果数据，可以是列表或元组
+
+    返回:
+        元组 (队伍1胜场, 队伍2胜场)
+    """
     if isinstance(result_data, list) and len(result_data) > 0 and isinstance(result_data[0], (list, tuple)):
         # 地图比分格式：[[13,11], [8,13], [13,10]]
         team1_maps = sum(1 for r in result_data if r[0] > r[1])
@@ -160,14 +233,45 @@ def _parse_score_from_result(result_data):
         # 传统比分格式：[2, 0] 或 (2, 1)
         return result_data[0], result_data[1]
 
-def play_regular_season(group, use_real_data=False, map_based=False, map_pool=None, real_results=None):
-    """进行常规赛：每组内每支队伍与同组其他队伍各打一场比赛"""
-    pts = {team: 0 for team in group}
-    win_loss = {team: [0, 0] for team in group}
-    map_diff = {team: 0 for team in group}
-    head_to_head = {team: {} for team in group}
-    match_records = []
-    team_stats = {
+def play_regular_season(
+    group: List[str],
+    use_real_data: bool = False,
+    map_based: bool = False,
+    map_pool: Optional[List[str]] = None,
+    real_results: Optional[Dict[str, List[Any]]] = None
+) -> Tuple[
+    Dict[str, int],
+    Dict[str, str],
+    Dict[str, str],
+    Dict[str, Dict[str, int]],
+    Dict[str, Dict[str, int]],
+    List[Tuple[str, str, str, Tuple[int, int]]]
+]:
+    """
+    进行常规赛：每组内每支队伍与同组其他队伍各打一场比赛
+
+    参数:
+        group: 小组内的队伍列表
+        use_real_data: 是否使用真实比赛数据
+        map_based: 是否基于地图进行模拟
+        map_pool: 地图池列表
+        real_results: 真实比赛结果数据
+
+    返回:
+        元组包含以下内容:
+        - 各队积分 {队伍: 积分}
+        - 各队胜负记录 {队伍: "X胜-Y负"}
+        - 各队地图差 {队伍: "+X"或"-X"}
+        - 各队详细统计 {队伍: {统计项: 值}}
+        - 队伍间交锋记录 {队伍: {对手: 胜场}}
+        - 比赛记录列表 [(队1, 队2, 胜者, (比分1, 比分2)), ...]
+    """
+    pts: Dict[str, int] = {team: 0 for team in group}
+    win_loss: Dict[str, List[int]] = {team: [0, 0] for team in group}
+    map_diff: Dict[str, int] = {team: 0 for team in group}
+    head_to_head: Dict[str, Dict[str, int]] = {team: {} for team in group}
+    match_records: List[Tuple[str, str, str, Tuple[int, int]]] = []
+    team_stats: Dict[str, Dict[str, int]] = {
         team: {
             'wins': 0,
             'losses': 0,
@@ -175,7 +279,7 @@ def play_regular_season(group, use_real_data=False, map_based=False, map_pool=No
             'maps_lost': 0
         } for team in group
     }
-    played_matches = set()
+    played_matches: Set[Tuple[str, str]] = set()
 
     if use_real_data and real_results and real_results['regular_season']:
         if debug:
@@ -252,12 +356,28 @@ def play_regular_season(group, use_real_data=False, map_based=False, map_pool=No
     for team in group:
         map_diff[team] = team_stats[team]['maps_won'] - team_stats[team]['maps_lost']
 
-    win_loss_dict = {team: f"{win_loss[team][0]}胜-{win_loss[team][1]}负" for team in group}
-    map_diff_dict = {team: f"+{map_diff[team]}" if map_diff[team] > 0 else str(map_diff[team]) for team in group}
+    win_loss_dict: Dict[str, str] = {team: f"{win_loss[team][0]}胜-{win_loss[team][1]}负" for team in group}
+    map_diff_dict: Dict[str, str] = {team: f"+{map_diff[team]}" if map_diff[team] > 0 else str(map_diff[team]) for team in group}
     return pts, win_loss_dict, map_diff_dict, team_stats, head_to_head, match_records
 
-def compare_teams(team1, team2, team_stats, head_to_head):
-    """比较两支队伍的排名优先级"""
+def compare_teams(
+    team1: str,
+    team2: str,
+    team_stats: Dict[str, Dict[str, int]],
+    head_to_head: Dict[str, Dict[str, int]]
+) -> bool:
+    """
+    比较两支队伍的排名优先级
+
+    参数:
+        team1: 队伍1名称
+        team2: 队伍2名称
+        team_stats: 队伍统计数据
+        head_to_head: 队伍间交锋记录
+
+    返回:
+        如果队伍1排名应在队伍2之前，返回True，否则返回False
+    """
     wins1, wins2 = team_stats[team1]['wins'], team_stats[team2]['wins']
     if wins1 != wins2:
         return wins1 > wins2
@@ -275,9 +395,31 @@ def compare_teams(team1, team2, team_stats, head_to_head):
 
     return team_stats[team1]['maps_won'] > team_stats[team2]['maps_won']
 
-def get_qualified(group, pts, win_loss_dict, map_diff_dict, team_stats, head_to_head, num_qualify=4):
-    """从小组中选出积分前4的队伍晋级季后赛（支持复杂排名规则）"""
-        # 创建同分队伍组
+def get_qualified(
+    group: List[str],
+    pts: Dict[str, int],
+    win_loss_dict: Dict[str, str],
+    map_diff_dict: Dict[str, str],
+    team_stats: Dict[str, Dict[str, int]],
+    head_to_head: Dict[str, Dict[str, int]],
+    num_qualify: int = 4
+) -> List[str]:
+    """
+    从小组中选出积分前4的队伍晋级季后赛（支持复杂排名规则）
+
+    参数:
+        group: 小组队伍列表
+        pts: 各队积分
+        win_loss_dict: 各队胜负记录
+        map_diff_dict: 各队地图差
+        team_stats: 队伍统计数据
+        head_to_head: 队伍间交锋记录
+        num_qualify: 晋级队伍数量，默认4
+
+    返回:
+        按排名排序的晋级队伍列表
+    """
+    # 创建同分队伍组
     groups = defaultdict(list)
     for team in group:
         key = (
@@ -287,13 +429,11 @@ def get_qualified(group, pts, win_loss_dict, map_diff_dict, team_stats, head_to_
         )
         groups[key].append(team)
 
-    sorted_groups = []
+    sorted_groups: List[str] = []
     for key, teams in sorted(groups.items(), key=lambda x: x[0], reverse=True):
         if len(teams) > 1:
             # 使用自定义比较函数进行排序
             teams.sort(key=lambda t: (-team_stats[t]['wins'], -(team_stats[t]['maps_won'] - team_stats[t]['maps_lost']), -head_to_head[t].get(opp, 0) if (opp := next((o for o in teams if o != t), None)) else 0, -team_stats[t]['maps_won']))
-            # 简化版：直接按规则排序
-            # teams.sort(key=lambda t: (-team_stats[t]['wins'], -(team_stats[t]['maps_won'] - team_stats[t]['maps_lost']), -sum(head_to_head[t].get(o, 0) for o in teams if o != t), -team_stats[t]['maps_won']))
         sorted_groups.extend(teams)
 
     if debug:
@@ -302,16 +442,31 @@ def get_qualified(group, pts, win_loss_dict, map_diff_dict, team_stats, head_to_
     return sorted_groups[:num_qualify]
 
 def play_playoffs(
-        qualified_teams_a,
-        qualified_teams_b,
-        initial_pts,
-        regular_pts,
-        use_real_data=False,
-        map_based=False,
-        map_pool=None,
-        real_results=None
-        ):
-    """季后赛：M1-M12编号 + 从左到右布局 + 双败淘汰"""
+        qualified_teams_a: List[str],
+        qualified_teams_b: List[str],
+        initial_pts: Dict[str, int],
+        regular_pts: Dict[str, int],
+        use_real_data: bool = False,
+        map_based: bool = False,
+        map_pool: Optional[List[str]] = None,
+        real_results: Optional[Dict[str, List[Any]]] = None
+        ) -> Dict[str, Any]:
+    """
+    季后赛：M1-M12编号 + 从左到右布局 + 双败淘汰
+
+    参数:
+        qualified_teams_a: A组晋级队伍
+        qualified_teams_b: B组晋级队伍
+        initial_pts: 初始积分
+        regular_pts: 常规赛积分
+        use_real_data: 是否使用真实数据
+        map_based: 是否基于地图模拟
+        map_pool: 地图池
+        real_results: 真实比赛结果
+
+    返回:
+        包含季后赛结果的字典，包括冠军、亚军、季军、殿军、最终积分等
+    """
     if debug:
         print("\n=== 季后赛（M1-M12轮次，从左到右布局）===")
 
@@ -330,14 +485,15 @@ def play_playoffs(
         print("\n左半区队伍:", left_bracket)
         print("右半区队伍:", right_bracket)
 
-    rounds = {}
+    rounds: Dict[str, Dict[str, Any]] = {}
 
-    def play_round(round_name, team1, team2, bo=3):
+    def play_round(round_name: str, team1: str, team2: str, bo: int = 3) -> Tuple[str, str]:
         rounds[round_name] = {'teams': [team1, team2], 'winner': None, 'loser': None, 'score': None}
         is_bo5 = round_name in ['M11', 'M12']
         current_bo = 5 if is_bo5 else bo
 
-        winner, score = None, None
+        winner: Optional[str] = None
+        score: Optional[Tuple[int, int]] = None
         if use_real_data and real_results and real_results['playoffs']:
             result = next((r for r in real_results['playoffs'] if
                           (r[0] == team1 and r[1] == team2) or
@@ -424,12 +580,16 @@ def play_playoffs(
         'champions_slots': [champion, runner_up, third_seed, fourth_seed]
     }
 
-def create_playoffs_visualization(playoff_results, region='cn'):
+def create_playoffs_visualization(playoff_results: Dict[str, Any], region: str = 'cn') -> graphviz.Digraph:
     """
     创建季后赛双败淘汰赛制的可视化图表
-    :param playoff_results: play_playoffs函数返回的结果字典
-    :param region: 赛区名称，用于文件名
-    :return: Graphviz对象
+
+    参数:
+        playoff_results: play_playoffs函数返回的结果字典
+        region: 赛区名称，用于文件名
+
+    返回:
+        Graphviz对象
     """
     rounds = playoff_results['rounds']
     dot = graphviz.Digraph(comment='Playoffs Bracket', format='png')
@@ -501,8 +661,33 @@ def create_playoffs_visualization(playoff_results, region='cn'):
     print(f"季后赛对阵图已保存至 {output_filename}.png")
     return dot
 
-def simulate_single_run(alpha, omega, initial_pts, use_real_data, map_based, map_pool, real_results=None):
-    """单次模拟运行，支持地图级别模拟"""
+def simulate_single_run(
+    alpha: List[str],
+    omega: List[str],
+    initial_pts: Dict[str, int],
+    use_real_data: bool = False,
+    map_based: bool = False,
+    map_pool: Optional[List[str]] = None,
+    real_results: Optional[Dict[str, List[Any]]] = None
+) -> Tuple[List[Optional[str]], List[str], Dict[str, Any]]:
+    """
+    单次模拟运行，支持地图级别模拟
+
+    参数:
+        alpha: Alpha组队伍
+        omega: Omega组队伍
+        initial_pts: 初始积分
+        use_real_data: 是否使用真实数据
+        map_based: 是否基于地图模拟
+        map_pool: 地图池
+        real_results: 真实比赛结果
+
+    返回:
+        元组包含:
+        - 冠军赛参赛队伍
+        - 季后赛晋级队伍
+        - 完整的季后赛结果
+    """
     alpha_pts, alpha_win_loss, alpha_map_diff, alpha_team_stats, alpha_head_to_head, _ = play_regular_season(
         alpha, use_real_data, map_based, map_pool, real_results
     )
@@ -530,11 +715,36 @@ def simulate_single_run(alpha, omega, initial_pts, use_real_data, map_based, map
     )
     return playoff_results['champions_slots'], alpha_qualified + omega_qualified, playoff_results # 返回完整结果用于可视化
 
-def simulate_regular_seasons(num_simulations, alpha, omega, use_real_data, num_threads, map_based, map_pool, real_results):
-    alpha_qualify_count = {team: 0 for team in alpha}
-    omega_qualify_count = {team: 0 for team in omega}
+def simulate_regular_seasons(
+    num_simulations: int,
+    alpha: List[str],
+    omega: List[str],
+    use_real_data: bool,
+    num_threads: int,
+    map_based: bool,
+    map_pool: Optional[List[str]],
+    real_results: Optional[Dict[str, List[Any]]]
+) -> Tuple[Dict[str, float], Dict[str, float]]:
+    """
+    模拟多次常规赛，计算各队晋级概率
 
-    def single_simulation():
+    参数:
+        num_simulations: 模拟次数
+        alpha: Alpha组队伍
+        omega: Omega组队伍
+        use_real_data: 是否使用真实数据
+        num_threads: 线程数
+        map_based: 是否基于地图模拟
+        map_pool: 地图池
+        real_results: 真实比赛结果
+
+    返回:
+        元组包含Alpha组和Omega组各队晋级概率
+    """
+    alpha_qualify_count: Dict[str, int] = {team: 0 for team in alpha}
+    omega_qualify_count: Dict[str, int] = {team: 0 for team in omega}
+
+    def single_simulation() -> None:
         alpha_pts, alpha_win_loss, alpha_map_diff, alpha_team_stats, alpha_head_to_head, _ = play_regular_season(
             alpha, use_real_data, map_based, map_pool, real_results
         )
@@ -567,14 +777,43 @@ def simulate_regular_seasons(num_simulations, alpha, omega, use_real_data, num_t
     omega_probabilities = {team: count / num_simulations for team, count in omega_qualify_count.items()}
     return alpha_probabilities, omega_probabilities
 
-def simulate_all_games(num_simulations, alpha, omega, initial_pts, use_real_data, num_threads, map_based, map_pool, real_results):
-    """模拟所有比赛，使用预加载的分组和积分数据"""
-    all_teams = alpha + omega
-    champions_slots_count = {team: 0 for team in all_teams}
-    no_playoffs_but_slot_count = {team: 0 for team in all_teams}
-    top2_in_slot_count = {team: 0 for team in all_teams}
+def simulate_all_games(
+    num_simulations: int,
+    alpha: List[str],
+    omega: List[str],
+    initial_pts: Dict[str, int],
+    use_real_data: bool,
+    num_threads: int,
+    map_based: bool,
+    map_pool: Optional[List[str]],
+    real_results: Optional[Dict[str, List[Any]]]
+) -> Tuple[Dict[str, float], Dict[str, int], Dict[str, int]]:
+    """
+    模拟所有比赛，使用预加载的分组和积分数据
 
-    def single_run_wrapper(_):
+    参数:
+        num_simulations: 模拟次数
+        alpha: Alpha组队伍
+        omega: Omega组队伍
+        initial_pts: 初始积分
+        use_real_data: 是否使用真实数据
+        num_threads: 线程数
+        map_based: 是否基于地图模拟
+        map_pool: 地图池
+        real_results: 真实比赛结果
+
+    返回:
+        元组包含:
+        - 各队晋级冠军赛的概率
+        - 各队未晋级季后赛但进入冠军赛的次数
+        - 各队进入冠军赛前两名的次数
+    """
+    all_teams = alpha + omega
+    champions_slots_count: Dict[str, int] = {team: 0 for team in all_teams}
+    no_playoffs_but_slot_count: Dict[str, int] = {team: 0 for team in all_teams}
+    top2_in_slot_count: Dict[str, int] = {team: 0 for team in all_teams}
+
+    def single_run_wrapper(_: int) -> Tuple[List[Optional[str]], List[str], Dict[str, Any]]:
         return simulate_single_run(alpha, omega, initial_pts, use_real_data, map_based, map_pool, real_results)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
@@ -586,16 +825,25 @@ def simulate_all_games(num_simulations, alpha, omega, initial_pts, use_real_data
 
     for champions_slots, playoff_teams, _ in results: # 忽略第三个返回值（playoff_results）
         for team in champions_slots:
-            champions_slots_count[team] += 1
-            if team in champions_slots[:2]:
-                top2_in_slot_count[team] += 1
+            if team:  # 确保team不是None
+                champions_slots_count[team] += 1
+                if team in champions_slots[:2]:
+                    top2_in_slot_count[team] += 1
+        # 检查哪些队伍进入了冠军赛但未进入季后赛
         for team in set(champions_slots) - set(playoff_teams):
-            no_playoffs_but_slot_count[team] += 1
+            if team:  # 确保team不是None
+                no_playoffs_but_slot_count[team] += 1
 
     probabilities = {team: count / num_simulations for team, count in champions_slots_count.items()}
     return probabilities, no_playoffs_but_slot_count, top2_in_slot_count
 
-def main(args):
+def main(args: argparse.Namespace) -> None:
+    """
+    主函数，执行单次模拟
+
+    参数:
+        args: 命令行参数
+    """
     global debug
     debug = args.debug # 使用args.debug而不是硬编码True
     yaml_folder = args.yaml_folder
@@ -651,22 +899,43 @@ def main(args):
         for i, (team, score) in enumerate(final_ranking, 1):
             print(f"{i}. {team}: {score}分")
 
-def print_probabilities(title, probs, show_separator=True, threshold=5, reverse=True):
+def print_probabilities(
+    title: str,
+    probs: Union[Dict[str, float], Dict[str, int]],
+    show_separator: bool = True,
+    threshold: int = 5,
+    reverse: bool = True
+) -> None:
     """
     打印概率信息的函数
-    :param title: 打印的标题
-    :param probs: 概率字典
-    :param show_separator: 是否显示分割线，默认为True
-    :param threshold: 分割线的位置，默认为5
+
+    参数:
+        title: 打印的标题
+        probs: 概率字典
+        show_separator: 是否显示分割线，默认为True
+        threshold: 分割线的位置，默认为5
+        reverse: 是否降序排序，默认为True
     """
     print(f"\n{title}:")
     sorted_probs = sorted(probs.items(), key=lambda x: x[1], reverse=reverse)
     for i, (team, prob) in enumerate(sorted_probs, start=1):
         if show_separator and i == threshold:
             print("------")
-        print(f"{team}: {prob * 100:.2f}%")
+        if isinstance(prob, float):
+            print(f"{team}: {prob * 100:.2f}%")
+        else:
+            print(f"{team}: {prob}")
 
-def multi_sim(args):
+def multi_sim(args: argparse.Namespace) -> Dict[str, Any]:
+    """
+    多次模拟函数，执行多次模拟并计算概率
+
+    参数:
+        args: 命令行参数
+
+    返回:
+        包含各类概率统计的字典
+    """
     global debug
     debug = args.debug
     yaml_folder = args.yaml_folder
