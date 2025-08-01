@@ -260,4 +260,12 @@ regular_season:
     score: [9, 13]
   - name: Haven
     score: [7, 13]
+- match: [NOVA, WOL, null]
+  maps: null
+- match: [DRG, XLG, null]
+  maps: null
+- match: [TYL, JDG, null]
+  maps: null
+- match: [BLG, EDG, null]
+  maps: null
 playoffs: []

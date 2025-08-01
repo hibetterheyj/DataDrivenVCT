@@ -1,0 +1,300 @@
+'506930':
+  index: 1
+  status: Completed
+  stage: Group Stage
+  teams:
+  - EDward Gaming
+  - Titan Esports Club
+  scores:
+  - '2'
+  - '0'
+'506931':
+  index: 2
+  status: Completed
+  stage: Group Stage
+  teams:
+  - Bilibili Gaming
+  - TYLOO
+  scores:
+  - '2'
+  - '0'
+'506932':
+  index: 3
+  status: Completed
+  stage: Group Stage
+  teams:
+  - All Gamers
+  - Xi Lai Gaming
+  scores:
+  - '1'
+  - '2'
+'506933':
+  index: 4
+  status: Completed
+  stage: Group Stage
+  teams:
+  - Wolves Esports
+  - FunPlus Phoenix
+  scores:
+  - '0'
+  - '2'
+'506934':
+  index: 5
+  status: Completed
+  stage: Group Stage
+  teams:
+  - Dragon Ranger Gaming
+  - Nova Esports
+  scores:
+  - '2'
+  - '1'
+'506935':
+  index: 6
+  status: Completed
+  stage: Group Stage
+  teams:
+  - JDG Esports
+  - Trace Esports
+  scores:
+  - '1'
+  - '2'
+'506936':
+  index: 7
+  status: Completed
+  stage: Group Stage
+  teams:
+  - Trace Esports
+  - TYLOO
+  scores:
+  - '0'
+  - '2'
+'506937':
+  index: 8
+  status: Completed
+  stage: Group Stage
+  teams:
+  - FunPlus Phoenix
+  - Nova Esports
+  scores:
+  - '2'
+  - '1'
+'506938':
+  index: 9
+  status: Completed
+  stage: Group Stage
+  teams:
+  - All Gamers
+  - Wolves Esports
+  scores:
+  - '2'
+  - '0'
+'506939':
+  index: 10
+  status: Completed
+  stage: Group Stage
+  teams:
+  - JDG Esports
+  - Bilibili Gaming
+  scores:
+  - '1'
+  - '2'
+'506940':
+  index: 11
+  status: Completed
+  stage: Group Stage
+  teams:
+  - TYLOO
+  - Titan Esports Club
+  scores:
+  - '2'
+  - '0'
+'506941':
+  index: 12
+  status: Completed
+  stage: Group Stage
+  teams:
+  - Trace Esports
+  - EDward Gaming
+  scores:
+  - '2'
+  - '1'
+'506942':
+  index: 13
+  status: Completed
+  stage: Group Stage
+  teams:
+  - Dragon Ranger Gaming
+  - All Gamers
+  scores:
+  - '2'
+  - '1'
+'506943':
+  index: 14
+  status: Completed
+  stage: Group Stage
+  teams:
+  - Xi Lai Gaming
+  - Wolves Esports
+  scores:
+  - '2'
+  - '0'
+'506945':
+  index: 15
+  status: Completed
+  stage: Group Stage
+  teams:
+  - Titan Esports Club
+  - Bilibili Gaming
+  scores:
+  - '0'
+  - '2'
+'506946':
+  index: 16
+  status: Completed
+  stage: Group Stage
+  teams:
+  - FunPlus Phoenix
+  - Dragon Ranger Gaming
+  scores:
+  - '2'
+  - '1'
+'506947':
+  index: 17
+  status: Completed
+  stage: Group Stage
+  teams:
+  - Nova Esports
+  - All Gamers
+  scores:
+  - '1'
+  - '2'
+'506948':
+  index: 18
+  status: Completed
+  stage: Group Stage
+  teams:
+  - TYLOO
+  - EDward Gaming
+  scores:
+  - '0'
+  - '2'
+'506949':
+  index: 19
+  status: Completed
+  stage: Group Stage
+  teams:
+  - Titan Esports Club
+  - JDG Esports
+  scores:
+  - '1'
+  - '2'
+'506950':
+  index: 20
+  status: Completed
+  stage: Group Stage
+  teams:
+  - Bilibili Gaming
+  - Trace Esports
+  scores:
+  - '1'
+  - '2'
+'506951':
+  index: 21
+  status: Completed
+  stage: Group Stage
+  teams:
+  - Wolves Esports
+  - Dragon Ranger Gaming
+  scores:
+  - '2'
+  - '1'
+'506952':
+  index: 22
+  status: Completed
+  stage: Group Stage
+  teams:
+  - Xi Lai Gaming
+  - FunPlus Phoenix
+  scores:
+  - '2'
+  - '0'
+'506953':
+  index: 23
+  status: Completed
+  stage: Group Stage
+  teams:
+  - Nova Esports
+  - Xi Lai Gaming
+  scores:
+  - '0'
+  - '2'
+'506954':
+  index: 24
+  status: Completed
+  stage: Group Stage
+  teams:
+  - EDward Gaming
+  - JDG Esports
+  scores:
+  - '2'
+  - '1'
+'506955':
+  index: 25
+  status: Completed
+  stage: Group Stage
+  teams:
+  - All Gamers
+  - FunPlus Phoenix
+  scores:
+  - '2'
+  - '0'
+'506956':
+  index: 26
+  status: Completed
+  stage: Group Stage
+  teams:
+  - Trace Esports
+  - Titan Esports Club
+  scores:
+  - '0'
+  - '2'
+'506957':
+  index: 27
+  status: Upcoming
+  stage: Group Stage
+  teams:
+  - Nova Esports
+  - Wolves Esports
+  scores:
+  - –
+  - –
+'506958':
+  index: 28
+  status: Upcoming
+  stage: Group Stage
+  teams:
+  - Dragon Ranger Gaming
+  - Xi Lai Gaming
+  scores:
+  - –
+  - –
+'506959':
+  index: 29
+  status: Upcoming
+  stage: Group Stage
+  teams:
+  - TYLOO
+  - JDG Esports
+  scores:
+  - –
+  - –
+'506960':
+  index: 30
+  status: Upcoming
+  stage: Group Stage
+  teams:
+  - Bilibili Gaming
+  - EDward Gaming
+  scores:
+  - –
+  - –
