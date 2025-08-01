@@ -1,0 +1,263 @@
+# https://www.vlr.gg/event/matches/2499/vct-2025-china-stage-2/
+regular_season:
+- match:
+  - EDG
+  - TEC
+  - [2, 0]
+  maps:
+  - name: Sunset
+    score: [13, 9]
+  - name: Corrode
+    score: [13, 6]
+- match:
+  - BLG
+  - TYL
+  - [2, 0]
+  maps:
+  - name: Bind
+    score: [13, 5]
+  - name: Lotus
+    score: [13, 9]
+- match:
+  - AG
+  - XLG
+  - [1, 2]
+  maps:
+  - name: Sunset
+    score: [13, 3]
+  - name: Lotus
+    score: [7, 13]
+  - name: Ascent
+    score: [3, 13]
+- match:
+  - WOL
+  - FPX
+  - [0, 2]
+  maps:
+  - name: Sunset
+    score: [5, 13]
+  - name: Corrode
+    score: [7, 13]
+- match:
+  - DRG
+  - NOVA
+  - [2, 1]
+  maps:
+  - name: Lotus
+    score: [13, 8]
+  - name: Icebox
+    score: [12, 14]
+  - name: Ascent
+    score: [13, 5]
+- match:
+  - JDG
+  - TE
+  - [1, 2]
+  maps:
+  - name: Icebox
+    score: [7, 13]
+  - name: Lotus
+    score: [13, 4]
+  - name: Haven
+    score: [4, 13]
+- match:
+  - TE
+  - TYL
+  - [0, 2]
+  maps:
+  - name: Corrode
+    score: [7, 13]
+  - name: Bind
+    score: [10, 13]
+- match:
+  - FPX
+  - NOVA
+  - [2, 1]
+  maps:
+  - name: Haven
+    score: [6, 13]
+  - name: Ascent
+    score: [13, 8]
+  - name: Bind
+    score: [13, 6]
+- match:
+  - AG
+  - WOL
+  - [2, 0]
+  maps:
+  - name: Bind
+    score: [13, 2]
+  - name: Corrode
+    score: [13, 4]
+- match:
+  - JDG
+  - BLG
+  - [1, 2]
+  maps:
+  - name: Sunset
+    score: [7, 13]
+  - name: Ascent
+    score: [15, 13]
+  - name: Icebox
+    score: [4, 13]
+- match:
+  - TYL
+  - TEC
+  - [2, 0]
+  maps:
+  - name: Haven
+    score: [13, 2]
+  - name: Lotus
+    score: [13, 10]
+- match:
+  - TE
+  - EDG
+  - [2, 1]
+  maps:
+  - name: Sunset
+    score: [13, 8]
+  - name: Bind
+    score: [11, 13]
+  - name: Icebox
+    score: [13, 3]
+- match:
+  - DRG
+  - AG
+  - [2, 1]
+  maps:
+  - name: Lotus
+    score: [5, 13]
+  - name: Corrode
+    score: [13, 7]
+  - name: Sunset
+    score: [13, 10]
+- match:
+  - XLG
+  - WOL
+  - [2, 0]
+  maps:
+  - name: Haven
+    score: [13, 9]
+  - name: Lotus
+    score: [13, 8]
+- match:
+  - TEC
+  - BLG
+  - [0, 2]
+  maps:
+  - name: Bind
+    score: [9, 13]
+  - name: Ascent
+    score: [8, 13]
+- match:
+  - FPX
+  - DRG
+  - [2, 1]
+  maps:
+  - name: Haven
+    score: [13, 7]
+  - name: Ascent
+    score: [6, 13]
+  - name: Sunset
+    score: [13, 11]
+- match:
+  - NOVA
+  - AG
+  - [1, 2]
+  maps:
+  - name: Haven
+    score: [13, 10]
+  - name: Corrode
+    score: [9, 13]
+  - name: Lotus
+    score: [6, 13]
+- match:
+  - TYL
+  - EDG
+  - [0, 2]
+  maps:
+  - name: Corrode
+    score: [10, 13]
+  - name: Ascent
+    score: [9, 13]
+- match:
+  - TEC
+  - JDG
+  - [1, 2]
+  maps:
+  - name: Lotus
+    score: [9, 13]
+  - name: Haven
+    score: [13, 9]
+  - name: Sunset
+    score: [11, 13]
+- match:
+  - BLG
+  - TE
+  - [1, 2]
+  maps:
+  - name: Haven
+    score: [13, 6]
+  - name: Icebox
+    score: [13, 15]
+  - name: Ascent
+    score: [6, 13]
+- match:
+  - WOL
+  - DRG
+  - [2, 1]
+  maps:
+  - name: Lotus
+    score: [14, 12]
+  - name: Icebox
+    score: [11, 13]
+  - name: Ascent
+    score: [13, 10]
+- match:
+  - XLG
+  - FPX
+  - [2, 0]
+  maps:
+  - name: Haven
+    score: [13, 8]
+  - name: Sunset
+    score: [14, 12]
+- match:
+  - NOVA
+  - XLG
+  - [0, 2]
+  maps:
+  - name: Sunset
+    score: [10, 13]
+  - name: Haven
+    score: [3, 13]
+- match:
+  - EDG
+  - JDG
+  - [2, 1]
+  maps:
+  - name: Corrode
+    score: [13, 5]
+  - name: Lotus
+    score: [10, 13]
+  - name: Haven
+    score: [13, 10]
+- match:
+  - AG
+  - FPX
+  - [2, 0]
+  maps:
+  - name: Icebox
+    score: [14, 12]
+  - name: Bind
+    score: [13, 8]
+- match:
+  - TE
+  - TEC
+  - [0, 2]
+  maps:
+  - name: Sunset
+    score: [9, 13]
+  - name: Haven
+    score: [7, 13]
+playoffs: []
